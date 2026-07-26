@@ -690,6 +690,9 @@ function renderReceiver() {
           <span class="w-3 h-3 rounded-full ${isError ? 'bg-error' : 'bg-primary-container animate-pulse'}"></span>
           <span class="${isError ? 'text-error font-bold' : 'text-on-surface'} font-mono-data">${message}</span>
         </div>
+        <div class="text-xs text-on-surface-variant border-t border-outline-variant/30 pt-2 font-mono-data">
+          ⚡ <b>LOCAL P2P TIP:</b> Ensure laptop tab stays open. If phone has 4G/5G mobile data ON, turn OFF mobile data and use Wi-Fi for instant pairing.
+        </div>
         ${showRetryBtn ? `
           <button id="manualRetryBtn" class="mt-2 bg-primary-container text-background px-4 py-2 font-label-caps uppercase self-start hover:brightness-110 flex items-center gap-2">
             <span class="material-symbols-outlined text-sm">refresh</span>
@@ -782,8 +785,11 @@ function renderReceiver() {
               updateRecvStatus(`EXCHANGING WEBRTC SIGNALS WITH SENDER (${sid})...`);
             } else if (state === "connected" || state === "completed") {
               updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
-            } else if (state === "failed") {
-              updateRecvStatus(`WEBRTC DIRECT CONNECTION FAILED. RETRYING...`, true, true);
+            } else if (state === "failed" || state === "disconnected") {
+              updateRecvStatus(`WEBRTC CONNECTION FAILED. RETRYING...`, true, true);
+              clearTimeout(connTimeout);
+              try { peer.destroy(); } catch (e) {}
+              p2pRetryTimer = setTimeout(connectP2PReceiver, 2000);
             }
           };
         }
