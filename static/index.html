@@ -193,19 +193,25 @@ const Relay = {
     }
   },
 
-  async poll(topic, timeoutMs = 8000) {
+  async poll(topic, timeoutMs = 4000) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const res = await fetch(`https://ntfy.sh/${topic}/raw?poll=1`, { signal: controller.signal });
+      const res = await fetch(`https://ntfy.sh/${topic}/json?poll=1`, { signal: controller.signal });
       clearTimeout(timer);
       if (!res.ok) return null;
       const text = await res.text();
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        return text;
+      const lines = text.trim().split('\n');
+      for (let i = lines.length - 1; i >= 0; i--) {
+        if (!lines[i]) continue;
+        try {
+          const parsed = JSON.parse(lines[i]);
+          if (parsed.message) {
+            try { return JSON.parse(parsed.message); } catch(e) { return parsed.message; }
+          }
+        } catch (e) {}
       }
+      return null;
     } catch (e) {
       clearTimeout(timer);
       return null;
@@ -608,9 +614,12 @@ function renderSender() {
     const manifestData = selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }));
     Relay.publish(`dt_m_${currentSid}`, manifestData);
 
-    // Listen for file requests coming over Relay
+    // Listen for file and manifest requests coming over Relay
     Relay.listen(`dt_req_${currentSid}`, (msg) => {
-      if (msg && msg.type === 'request_file') {
+      if (msg && msg.type === 'get_manifest') {
+        const manifestData = selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }));
+        Relay.publish(`dt_m_${currentSid}`, manifestData);
+      } else if (msg && msg.type === 'request_file') {
         streamFileToPeer(msg.id, activeConn);
       }
     });
@@ -848,7 +857,7 @@ function renderReceiver() {
       updateRecvStatus("FETCHING SESSION FILE MANIFEST FROM RELAY...");
     }
 
-    // Listen for remote dispatch signals
+    // Listen for remote dispatch signals and manifest updates on Relay
     if (!activeRelayListeners[`cmd_${sid}`]) {
       activeRelayListeners[`cmd_${sid}`] = Relay.listen(`dt_cmd_${sid}`, (msg) => {
         if (msg && msg.type === 'start_all') {
@@ -858,7 +867,21 @@ function renderReceiver() {
       });
     }
 
-    // Fast-path 1: Instant Manifest Fetch via HTTP Relay (100% Reliability Guarantee!)
+    if (!activeRelayListeners[`manifest_${sid}`]) {
+      activeRelayListeners[`manifest_${sid}`] = Relay.listen(`dt_m_${sid}`, (msg) => {
+        if (msg && Array.isArray(msg) && msg.length > 0) {
+          if (!files || !files.length) {
+            files = msg;
+            renderRecvFilesP2P();
+          }
+        }
+      });
+    }
+
+    // Request manifest over Relay immediately
+    Relay.publish(`dt_req_${sid}`, { type: 'get_manifest' });
+
+    // Fast-path 1: Instant Manifest Fetch via HTTP Relay
     try {
       const relayManifest = await Relay.poll(`dt_m_${sid}`, 3500);
       if (relayManifest && Array.isArray(relayManifest) && relayManifest.length > 0) {
@@ -898,6 +921,7 @@ function renderReceiver() {
     }
     
     peer.on('open', () => {
+      headerStatusText.textContent = "P2P_SIGNAL_READY";
       if (!files || !files.length) {
         updateRecvStatus(`P2P SIGNAL ESTABLISHED. CONNECTING TO SENDER (${sid})...`);
       }
@@ -936,6 +960,7 @@ function renderReceiver() {
           pc.oniceconnectionstatechange = () => {
             const state = pc.iceConnectionState;
             if (state === "checking") {
+              headerStatusText.textContent = "P2P_EXCHANGING_SIGNALS";
               if (!files || !files.length) updateRecvStatus(`EXCHANGING WEBRTC SIGNALS WITH SENDER (${sid})...`);
             } else if (state === "connected" || state === "completed") {
               headerStatusText.textContent = "P2P_CONNECTED";
