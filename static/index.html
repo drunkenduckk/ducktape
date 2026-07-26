@@ -177,7 +177,7 @@ const rawSid = params.get("sid") || (location.hash ? new URLSearchParams(locatio
 const sid = rawSid ? rawSid.trim() : null;
 const app = document.getElementById("app");
 const statusDot = document.getElementById("statusDot");
-const DEFAULT_CF_RELAY = ""; // Set your deployed Cloudflare Worker URL here for zero-config end users!
+const DEFAULT_CF_RELAY = "https://ducktape-relay.ducktape.workers.dev";
 const CF_RELAY_URL = params.get("relay") || localStorage.getItem("cf_relay_url") || DEFAULT_CF_RELAY;
 
 const Relay = {
