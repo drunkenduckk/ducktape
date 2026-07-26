@@ -1,10 +1,10 @@
 """
-DUCKTAPE INDUSTRIAL — WebRTC Signal Server for Render
+DUCKTAPE INDUSTRIAL — WebRTC & WebSocket Stream Hub for Render
 Created by Aman Srivastava.
 
-Hosts static web frontend + high-speed WebSocket signaling hub.
-Zero file uploads touch this server. All files stream directly P2P
-between devices over local Wi-Fi / Hotspot at 120MB/s+.
+Hosts static web frontend + high-speed WebRTC/WebSocket streaming hub.
+Zero file uploads touch server disk. All files stream directly P2P
+between devices in real-time.
 """
 
 import asyncio
@@ -15,7 +15,7 @@ PORT = int(os.environ.get("PORT", 8080))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 
-# Registry for WebSocket signal sockets: sid -> {"sender": ws, "receiver": ws}
+# Registry for WebSocket stream channels: sid -> {"sender": ws, "receiver": ws}
 channels = {}
 
 routes = web.RouteTableDef()
@@ -42,17 +42,17 @@ async def ws_signal(request):
     sid = request.match_info["sid"]
     role = request.match_info["role"]  # "sender" or "receiver"
 
-    ws = web.WebSocketResponse(heartbeat=15)
+    ws = web.WebSocketResponse(heartbeat=15, max_msg_size=16*1024*1024)
     await ws.prepare(request)
 
     if sid not in channels:
         channels[sid] = {}
     channels[sid][role] = ws
 
-    # If receiver connected, notify sender
     other_role = "receiver" if role == "sender" else "sender"
     other_ws = channels[sid].get(other_role)
 
+    # Broadcast peer_joined notification to both sides
     if other_ws and not other_ws.closed:
         try:
             await other_ws.send_json({"type": "peer_joined", "role": role})
@@ -62,10 +62,12 @@ async def ws_signal(request):
 
     try:
         async for msg in ws:
-            if msg.type == web.WSMsgType.TEXT:
-                target_ws = channels.get(sid, {}).get(other_role)
-                if target_ws and not target_ws.closed:
+            target_ws = channels.get(sid, {}).get(other_role)
+            if target_ws and not target_ws.closed:
+                if msg.type == web.WSMsgType.TEXT:
                     await target_ws.send_str(msg.data)
+                elif msg.type == web.WSMsgType.BINARY:
+                    await target_ws.send_bytes(msg.data)
     finally:
         if sid in channels:
             channels[sid].pop(role, None)
@@ -76,9 +78,9 @@ async def ws_signal(request):
 
 
 def main():
-    app = web.Application()
+    app = web.Application(client_max_size=1024 * 1024 * 1024 * 50)
     app.add_routes(routes)
-    print(f"DUCKTAPE WebRTC Signal Server running on port {PORT}")
+    print(f"DUCKTAPE Stream Hub running on port {PORT}")
     web.run_app(app, host="0.0.0.0", port=PORT, print=None)
 
 

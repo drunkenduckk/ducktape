@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <meta name="author" content="Aman Srivastava"/>
-<meta name="description" content="DUCKTAPE INDUSTRIAL — Direct local P2P WebRTC file streaming created by Aman Srivastava."/>
+<meta name="description" content="DUCKTAPE INDUSTRIAL — Direct zero-cloud local file streaming created by Aman Srivastava."/>
 <title>DUCKTAPE INDUSTRIAL — High-Speed Direct P2P File Transfer</title>
 <style>
   @layer base {
@@ -59,7 +59,6 @@
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Anton:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
-<script src="https://cdn.jsdelivr.net/npm/qr-creator/dist/qr-creator.min.js"></script>
 </head>
 <body class="bg-background font-mono-data text-on-surface antialiased selection:bg-primary-container selection:text-background">
 
@@ -87,7 +86,7 @@
   <div class="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row justify-between items-end gap-4">
     <div class="text-left">
       <div class="font-headline-sm text-on-surface uppercase">DUCKTAPE INDUSTRIAL</div>
-      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 4.0.0</div>
+      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 4.1.0</div>
     </div>
     <div class="h-8 w-48 bg-[repeating-linear-gradient(45deg,#f4c60e,#f4c60e_10px,#131313_10px,#131313_20px)]"></div>
   </div>
@@ -128,6 +127,7 @@ function renderSender() {
   let ws = null;
   let pc = null;
   let dataChannel = null;
+  let pendingCandidates = [];
 
   app.innerHTML = `
     <section class="relative w-full min-h-[85vh] flex flex-col items-center justify-center industrial-grid overflow-hidden py-12">
@@ -151,7 +151,7 @@ function renderSender() {
             <span id="heroStatusText">SYSTEM_READY_FOR_FILES</span>
           </div>
           <div class="font-mono-data text-[11px] text-on-surface-variant/60 tracking-[0.2em] uppercase text-center max-w-md">
-            Direct Zero-Cloud Local P2P Stream // 120MB/s+ Local Wi-Fi
+            Direct Zero-Cloud Local Stream // Hardware Encrypted Pipe
           </div>
         </div>
       </div>
@@ -187,7 +187,7 @@ function renderSender() {
           <div class="border-2 border-primary-container p-4 bg-surface-container-low flex items-center gap-4">
             <span class="material-symbols-outlined text-primary-container text-[32px]">qr_code_scanner</span>
             <div class="font-mono-data text-xs text-on-surface uppercase">
-              <strong>Local Direct Stream:</strong> Scan QR code using phone camera to establish high-speed local P2P pipe.
+              <strong>Local Direct Stream:</strong> Scan QR code using phone camera to establish stream pipe.
             </div>
           </div>
 
@@ -236,7 +236,7 @@ function renderSender() {
 
   function renderFilesManifest() {
     document.getElementById("deploymentSection").style.display = "block";
-    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for direct P2P stream`;
+    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for direct stream`;
     
     const tbody = document.getElementById("fileTableBody");
     tbody.innerHTML = selectedFiles.map(f => `
@@ -254,25 +254,59 @@ function renderSender() {
   }
 
   function initSenderSignaling() {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      sendManifestOverWS();
+      return;
+    }
+
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws/${currentSid}/sender`);
 
     ws.onopen = () => {
       document.getElementById("pairStatusText").textContent = "STATUS: SIGNAL HUB ONLINE // WAITING FOR PHONE TO SCAN QR CODE...";
+      sendManifestOverWS();
     };
 
     ws.onmessage = async (evt) => {
-      const msg = JSON.parse(evt.data);
+      if (typeof evt.data === "string") {
+        try {
+          const msg = JSON.parse(evt.data);
 
-      if (msg.type === "peer_joined") {
-        document.getElementById("pairStatusText").textContent = "STATUS: PHONE DETECTED // INITIALIZING WEBRTC P2P PIPE...";
-        setupWebRTCConnection();
-      } else if (msg.type === "answer") {
-        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
-      } else if (msg.type === "candidate" && msg.candidate) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e){}
+          if (msg.type === "peer_joined") {
+            document.getElementById("pairStatusText").textContent = "STATUS: PHONE DETECTED // INITIALIZING P2P STREAM...";
+            sendManifestOverWS();
+            setupWebRTCConnection();
+          } else if (msg.type === "get_manifest") {
+            sendManifestOverWS();
+          } else if (msg.type === "request_file") {
+            streamFileToPeer(msg.id);
+          } else if (msg.type === "answer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+            while (pendingCandidates.length > 0) {
+              const cand = pendingCandidates.shift();
+              try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch(e){}
+            }
+          } else if (msg.type === "candidate" && msg.candidate) {
+            if (pc && pc.remoteDescription) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e){}
+            } else {
+              pendingCandidates.push(msg.candidate);
+            }
+          }
+        } catch(e){}
       }
     };
+  }
+
+  function sendManifestOverWS() {
+    if (ws && ws.readyState === WebSocket.OPEN && selectedFiles.length > 0) {
+      try {
+        ws.send(JSON.stringify({
+          type: "manifest",
+          files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
+        }));
+      } catch(e){}
+    }
   }
 
   async function setupWebRTCConnection() {
@@ -283,18 +317,16 @@ function renderSender() {
 
     dataChannel.onopen = () => {
       headerStatusText.textContent = "P2P_DIRECT_CONNECTED";
-      document.getElementById("pairStatusText").textContent = "STATUS: P2P_DIRECT_PIPE_CONNECTED // READY FOR 120MB/s TRANSFER";
+      document.getElementById("pairStatusText").textContent = "STATUS: P2P_DIRECT_PIPE_CONNECTED // READY FOR HIGH-SPEED STREAM";
       document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
-      
-      // Send file manifest directly to phone over DataChannel
-      sendManifestOverP2P();
+      sendManifestOverDataChannel();
     };
 
     dataChannel.onmessage = (evt) => {
       try {
         const msg = JSON.parse(evt.data);
         if (msg.type === "get_manifest") {
-          sendManifestOverP2P();
+          sendManifestOverDataChannel();
         } else if (msg.type === "request_file") {
           streamFileToPeer(msg.id);
         }
@@ -315,7 +347,7 @@ function renderSender() {
     }
   }
 
-  function sendManifestOverP2P() {
+  function sendManifestOverDataChannel() {
     if (dataChannel && dataChannel.readyState === "open") {
       try {
         dataChannel.send(JSON.stringify({
@@ -328,40 +360,55 @@ function renderSender() {
 
   function streamFileToPeer(fileId) {
     const fileItem = selectedFiles.find(f => f.id === fileId);
-    if (!fileItem || !fileItem.rawFile || !dataChannel || dataChannel.readyState !== "open") return;
+    if (!fileItem || !fileItem.rawFile) return;
 
     const file = fileItem.rawFile;
-    const chunkSize = 64 * 1024; // 64KB DataChannel chunks
+    const isDataChannel = dataChannel && dataChannel.readyState === "open";
+    const chunkSize = isDataChannel ? 64 * 1024 : 16 * 1024; // 64KB for DataChannel, 16KB for WebSocket
     let offset = 0;
 
-    try {
-      dataChannel.send(JSON.stringify({ type: 'start_transfer', id: fileId, name: file.name, size: file.size }));
-    } catch(e){}
+    const startMsg = JSON.stringify({ type: 'start_transfer', id: fileId, name: file.name, size: file.size });
+    if (isDataChannel) {
+      try { dataChannel.send(startMsg); } catch(e){}
+    } else if (ws && ws.readyState === WebSocket.OPEN) {
+      try { ws.send(startMsg); } catch(e){}
+    }
 
     function readSlice() {
-      if (!dataChannel || dataChannel.readyState !== "open") return;
-
-      if (dataChannel.bufferedAmount > 1024 * 1024) {
-        setTimeout(readSlice, 20);
-        return;
+      if (isDataChannel) {
+        if (dataChannel.readyState !== "open") return;
+        if (dataChannel.bufferedAmount > 1024 * 1024) {
+          setTimeout(readSlice, 20);
+          return;
+        }
+      } else {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        if (ws.bufferedAmount > 1024 * 1024) {
+          setTimeout(readSlice, 20);
+          return;
+        }
       }
 
       const slice = file.slice(offset, offset + chunkSize);
       const reader = new FileReader();
       reader.onload = (e) => {
-        if (!dataChannel || dataChannel.readyState !== "open") return;
         const arrayBuffer = e.target.result;
-        try {
-          dataChannel.send(arrayBuffer);
-        } catch(e) {}
+        if (isDataChannel) {
+          try { dataChannel.send(arrayBuffer); } catch(e){}
+        } else if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(arrayBuffer); } catch(e){}
+        }
 
         offset += arrayBuffer.byteLength;
         if (offset < file.size) {
-          setTimeout(readSlice, 2);
+          setTimeout(readSlice, isDataChannel ? 2 : 10);
         } else {
-          try {
-            dataChannel.send(JSON.stringify({ type: 'end_transfer', id: fileId }));
-          } catch(e){}
+          const endMsg = JSON.stringify({ type: 'end_transfer', id: fileId });
+          if (isDataChannel) {
+            try { dataChannel.send(endMsg); } catch(e){}
+          } else if (ws && ws.readyState === WebSocket.OPEN) {
+            try { ws.send(endMsg); } catch(e){}
+          }
         }
       };
       reader.readAsArrayBuffer(slice);
@@ -381,7 +428,7 @@ function renderReceiver() {
         
         <div class="flex flex-col gap-2">
           <h1 class="font-headline-lg text-on-surface uppercase text-3xl md:text-4xl">AVAILABLE_FILE_MANIFEST</h1>
-          <p class="font-mono-data text-on-surface-variant text-xs">Tap SAVE to stream files directly into device memory via local P2P.</p>
+          <p class="font-mono-data text-on-surface-variant text-xs">Tap SAVE to stream files directly into device downloads.</p>
         </div>
 
         <div id="recvFileRows" class="border-2 border-outline-variant bg-background p-4 font-mono-data">
@@ -399,6 +446,8 @@ function renderReceiver() {
   let pc = null;
   let dataChannel = null;
   let fileBuffers = {};
+  let pendingCandidates = [];
+  let activeFileId = null;
 
   function updateRecvStatus(message, isError = false) {
     const el = document.getElementById("recvFileRows");
@@ -414,22 +463,39 @@ function renderReceiver() {
   }
 
   function initReceiverSignaling() {
-    updateRecvStatus(`CONNECTING SIGNAL TO SENDER (${sid})...`);
+    updateRecvStatus(`CONNECTING STREAM PIPE TO SENDER (${sid})...`);
 
     const proto = location.protocol === "https:" ? "wss" : "ws";
     ws = new WebSocket(`${proto}://${location.host}/ws/${sid}/receiver`);
 
     ws.onopen = () => {
-      updateRecvStatus("SIGNAL ESTABLISHED. EXCHANGING WEBRTC DIRECT KEYS...");
+      headerStatusText.textContent = "SIGNAL_HUB_CONNECTED";
+      updateRecvStatus("SIGNAL HUB CONNECTED. FETCHING MANIFEST...");
+      try { ws.send(JSON.stringify({ type: "get_manifest" })); } catch(e){}
     };
 
     ws.onmessage = async (evt) => {
-      const msg = JSON.parse(evt.data);
+      if (typeof evt.data === "string") {
+        try {
+          const msg = JSON.parse(evt.data);
 
-      if (msg.type === "offer") {
-        setupWebRTCReceiver(msg.sdp);
-      } else if (msg.type === "candidate" && msg.candidate && pc) {
-        try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e){}
+          if (msg.type === "peer_joined") {
+            try { ws.send(JSON.stringify({ type: "get_manifest" })); } catch(e){}
+          } else if (msg.type === "offer") {
+            setupWebRTCReceiver(msg.sdp);
+          } else if (msg.type === "candidate" && msg.candidate) {
+            if (pc && pc.remoteDescription) {
+              try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e){}
+            } else {
+              pendingCandidates.push(msg.candidate);
+            }
+          } else {
+            handleFileControlMessage(msg);
+          }
+        } catch(e){}
+      } else {
+        // Binary chunk received over WebSocket fallback
+        handleFileBinaryChunk(evt.data);
       }
     };
   }
@@ -453,7 +519,6 @@ function renderReceiver() {
             handleFileControlMessage(msg);
           } catch(e){}
         } else {
-          // Binary chunk
           handleFileBinaryChunk(evt.data);
         }
       };
@@ -466,6 +531,11 @@ function renderReceiver() {
     };
 
     await pc.setRemoteDescription(new RTCSessionDescription(remoteOfferSdp));
+    while (pendingCandidates.length > 0) {
+      const cand = pendingCandidates.shift();
+      try { await pc.addIceCandidate(new RTCIceCandidate(cand)); } catch(e){}
+    }
+
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
 
@@ -473,8 +543,6 @@ function renderReceiver() {
       ws.send(JSON.stringify({ type: "answer", sdp: answer }));
     }
   }
-
-  let activeFileId = null;
 
   function handleFileControlMessage(msg) {
     if (msg.type === 'manifest') {
@@ -562,16 +630,15 @@ function renderReceiver() {
         btn.textContent = "REQUESTING...";
         fileBuffers[f.id] = { name: f.name, size: f.size, chunks: [], bytesReceived: 0, done: false };
 
+        const reqMsg = JSON.stringify({ type: 'request_file', id: f.id });
+
         if (dataChannel && dataChannel.readyState === "open") {
-          try {
-            dataChannel.send(JSON.stringify({ type: 'request_file', id: f.id }));
-          } catch(e) {
-            btn.disabled = false;
-            btn.textContent = "RETRY SAVE";
-          }
+          try { dataChannel.send(reqMsg); } catch(e){}
+        } else if (ws && ws.readyState === WebSocket.OPEN) {
+          try { ws.send(reqMsg); } catch(e){}
         } else {
           btn.disabled = false;
-          btn.textContent = "P2P DISCONNECTED";
+          btn.textContent = "RETRY SAVE";
         }
       };
     });
