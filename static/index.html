@@ -4,8 +4,8 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <meta name="author" content="Aman Srivastava"/>
-<meta name="description" content="DUCKTAPE INDUSTRIAL — Zero-cloud local LAN file streaming created by Aman Srivastava."/>
-<title>DUCKTAPE INDUSTRIAL — High-Speed Local LAN File Transfer</title>
+<meta name="description" content="DUCKTAPE INDUSTRIAL — Direct local P2P WebRTC file streaming created by Aman Srivastava."/>
+<title>DUCKTAPE INDUSTRIAL — High-Speed Direct P2P File Transfer</title>
 <style>
   @layer base {
     html, body { margin: 0; padding: 0; }
@@ -59,6 +59,7 @@
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Anton:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://cdn.jsdelivr.net/npm/qr-creator/dist/qr-creator.min.js"></script>
 </head>
 <body class="bg-background font-mono-data text-on-surface antialiased selection:bg-primary-container selection:text-background">
 
@@ -73,7 +74,7 @@
     </div>
     <div class="flex items-center gap-2">
       <span class="w-2.5 h-2.5 rounded-full bg-primary-container animate-pulse" id="statusDot"></span>
-      <span class="font-mono-data text-xs text-primary-container uppercase" id="headerStatusText">LOCAL_LAN_READY</span>
+      <span class="font-mono-data text-xs text-primary-container uppercase" id="headerStatusText">P2P_STREAM_READY</span>
     </div>
   </div>
 </header>
@@ -86,7 +87,7 @@
   <div class="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row justify-between items-end gap-4">
     <div class="text-left">
       <div class="font-headline-sm text-on-surface uppercase">DUCKTAPE INDUSTRIAL</div>
-      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 3.1.0</div>
+      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 4.0.0</div>
     </div>
     <div class="h-8 w-48 bg-[repeating-linear-gradient(45deg,#f4c60e,#f4c60e_10px,#131313_10px,#131313_20px)]"></div>
   </div>
@@ -101,6 +102,16 @@ const statusDot = document.getElementById("statusDot");
 const headerStatusText = document.getElementById("headerStatusText");
 const browserFileInput = document.getElementById("browserFileInput");
 
+const RTC_CONFIG = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' }
+  ]
+};
+
 function fmtSize(bytes) {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
@@ -113,14 +124,16 @@ sid ? renderReceiver() : renderSender();
 // ============================== SENDER (LAPTOP) ==============================
 function renderSender() {
   let selectedFiles = [];
-  let wifiIp = null;
-  let currentSid = null;
+  let currentSid = 'dt_' + Math.random().toString(36).substring(2, 9);
+  let ws = null;
+  let pc = null;
+  let dataChannel = null;
 
   app.innerHTML = `
     <section class="relative w-full min-h-[85vh] flex flex-col items-center justify-center industrial-grid overflow-hidden py-12">
       <div class="relative flex flex-col items-center gap-8">
         <div class="relative bg-on-surface text-background px-4 py-2 font-label-caps animate-bounce text-center text-xs font-bold">
-          Click to select files from laptop disk
+          Click to select files to stream
           <div class="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-on-surface"></div>
         </div>
 
@@ -135,10 +148,10 @@ function renderSender() {
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center gap-3 font-mono-data text-xs text-primary-container">
             <span class="w-2.5 h-2.5 bg-primary-container animate-pulse"></span>
-            <span id="heroStatusText">SYSTEM_READY_FOR_INDEXING</span>
+            <span id="heroStatusText">SYSTEM_READY_FOR_FILES</span>
           </div>
           <div class="font-mono-data text-[11px] text-on-surface-variant/60 tracking-[0.2em] uppercase text-center max-w-md">
-            Direct Zero-Cloud File Streaming // Hardware Encrypted Local LAN Stream
+            Direct Zero-Cloud Local P2P Stream // 120MB/s+ Local Wi-Fi
           </div>
         </div>
       </div>
@@ -151,7 +164,7 @@ function renderSender() {
         <div class="flex flex-col gap-6">
           <div class="border-l-4 border-primary-container pl-4">
             <h2 class="font-headline-md text-on-surface uppercase text-2xl">INDEXED_FILE_MANIFEST</h2>
-            <p class="font-mono-data text-on-surface-variant text-sm" id="fileCountText">0 files indexed off laptop disk</p>
+            <p class="font-mono-data text-on-surface-variant text-sm" id="fileCountText">0 files indexed in browser</p>
           </div>
           
           <div class="border-2 border-outline-variant bg-background p-4 overflow-x-auto max-h-96">
@@ -174,7 +187,7 @@ function renderSender() {
           <div class="border-2 border-primary-container p-4 bg-surface-container-low flex items-center gap-4">
             <span class="material-symbols-outlined text-primary-container text-[32px]">qr_code_scanner</span>
             <div class="font-mono-data text-xs text-on-surface uppercase">
-              <strong>Local Wi-Fi / Hotspot:</strong> Connect phone to same Wi-Fi / Mobile Hotspot and scan QR code.
+              <strong>Local Direct Stream:</strong> Scan QR code using phone camera to establish high-speed local P2P pipe.
             </div>
           </div>
 
@@ -187,6 +200,9 @@ function renderSender() {
             </div>
           </div>
 
+          <div class="font-mono-data text-xs text-on-surface-variant text-center uppercase" id="pairStatusText">
+            STATUS: Waiting for phone camera scan…
+          </div>
         </div>
 
       </div>
@@ -197,50 +213,30 @@ function renderSender() {
   const heroStatusText = document.getElementById("heroStatusText");
   const circleBtnText = document.getElementById("circleBtnText");
 
-  uploadCircleBtn.onclick = async () => {
-    uploadCircleBtn.disabled = true;
-    circleBtnText.textContent = "INDEXING...";
-    heroStatusText.textContent = "INDEXING_FILES_OFF_LAPTOP_DISK...";
-
-    try {
-      const res = await fetch("/api/select-files", { method: "POST" });
-      if (!res.ok) throw new Error("Native picker error");
-      const data = await res.json();
-      uploadCircleBtn.disabled = false;
-      
-      if (data.files && data.files.length) {
-        selectedFiles = data.files;
-        circleBtnText.textContent = "ADD MORE";
-        heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_OFF_DISK`;
-        renderFilesManifest();
-        await setupNetworkAndQR();
-      } else {
-        circleBtnText.textContent = "SELECT";
-        heroStatusText.textContent = "SYSTEM_READY_FOR_INDEXING";
-      }
-    } catch (err) {
-      browserFileInput.click();
-    }
+  uploadCircleBtn.onclick = () => {
+    browserFileInput.click();
   };
 
-  browserFileInput.onchange = async () => {
-    uploadCircleBtn.disabled = false;
+  browserFileInput.onchange = () => {
     if (!browserFileInput.files.length) return;
     
     selectedFiles = Array.from(browserFileInput.files).map((f, i) => ({
       id: 'f_' + Date.now() + '_' + i,
       name: f.name,
-      size: f.size
+      size: f.size,
+      rawFile: f
     }));
 
     circleBtnText.textContent = "ADD MORE";
     heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_IN_BROWSER`;
+    headerStatusText.textContent = "FILES_INDEXED";
     renderFilesManifest();
+    initSenderSignaling();
   };
 
   function renderFilesManifest() {
     document.getElementById("deploymentSection").style.display = "block";
-    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for direct stream download`;
+    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for direct P2P stream`;
     
     const tbody = document.getElementById("fileTableBody");
     tbody.innerHTML = selectedFiles.map(f => `
@@ -250,32 +246,127 @@ function renderSender() {
       </tr>
     `).join("");
 
+    const targetUrl = `${location.protocol}//${location.host}/?sid=${currentSid}`;
+    document.getElementById("qrImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
+    document.getElementById("ipDisplayText").textContent = targetUrl;
+
     document.getElementById("deploymentSection").scrollIntoView({ behavior: 'smooth' });
   }
 
-  async function setupNetworkAndQR() {
-    try {
-      const res = await fetch("/api/network-interfaces");
-      const data = await res.json();
-      wifiIp = data.ip || "127.0.0.1";
-      await createLocalSession();
-    } catch (err) {
-      console.warn("Network interface error:", err);
+  function initSenderSignaling() {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws/${currentSid}/sender`);
+
+    ws.onopen = () => {
+      document.getElementById("pairStatusText").textContent = "STATUS: SIGNAL HUB ONLINE // WAITING FOR PHONE TO SCAN QR CODE...";
+    };
+
+    ws.onmessage = async (evt) => {
+      const msg = JSON.parse(evt.data);
+
+      if (msg.type === "peer_joined") {
+        document.getElementById("pairStatusText").textContent = "STATUS: PHONE DETECTED // INITIALIZING WEBRTC P2P PIPE...";
+        setupWebRTCConnection();
+      } else if (msg.type === "answer") {
+        await pc.setRemoteDescription(new RTCSessionDescription(msg.sdp));
+      } else if (msg.type === "candidate" && msg.candidate) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e){}
+      }
+    };
+  }
+
+  async function setupWebRTCConnection() {
+    if (pc) try { pc.close(); } catch(e){}
+
+    pc = new RTCPeerConnection(RTC_CONFIG);
+    dataChannel = pc.createDataChannel("fileTransfer", { ordered: true });
+
+    dataChannel.onopen = () => {
+      headerStatusText.textContent = "P2P_DIRECT_CONNECTED";
+      document.getElementById("pairStatusText").textContent = "STATUS: P2P_DIRECT_PIPE_CONNECTED // READY FOR 120MB/s TRANSFER";
+      document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
+      
+      // Send file manifest directly to phone over DataChannel
+      sendManifestOverP2P();
+    };
+
+    dataChannel.onmessage = (evt) => {
+      try {
+        const msg = JSON.parse(evt.data);
+        if (msg.type === "get_manifest") {
+          sendManifestOverP2P();
+        } else if (msg.type === "request_file") {
+          streamFileToPeer(msg.id);
+        }
+      } catch(e){}
+    };
+
+    pc.onicecandidate = (evt) => {
+      if (evt.candidate && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "candidate", candidate: evt.candidate }));
+      }
+    };
+
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "offer", sdp: offer }));
     }
   }
 
-  async function createLocalSession() {
-    const res = await fetch("/api/create-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ip: wifiIp, file_ids: selectedFiles.map(f => f.id) }),
-    });
-    const data = await res.json();
-    if (data.error) { alert(data.error); return; }
-    currentSid = data.sid;
+  function sendManifestOverP2P() {
+    if (dataChannel && dataChannel.readyState === "open") {
+      try {
+        dataChannel.send(JSON.stringify({
+          type: "manifest",
+          files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
+        }));
+      } catch(e){}
+    }
+  }
 
-    document.getElementById("qrImg").src = `/api/qrcode/${currentSid}?t=${Date.now()}`;
-    document.getElementById("ipDisplayText").textContent = `http://${wifiIp}:8080/?sid=${currentSid}`;
+  function streamFileToPeer(fileId) {
+    const fileItem = selectedFiles.find(f => f.id === fileId);
+    if (!fileItem || !fileItem.rawFile || !dataChannel || dataChannel.readyState !== "open") return;
+
+    const file = fileItem.rawFile;
+    const chunkSize = 64 * 1024; // 64KB DataChannel chunks
+    let offset = 0;
+
+    try {
+      dataChannel.send(JSON.stringify({ type: 'start_transfer', id: fileId, name: file.name, size: file.size }));
+    } catch(e){}
+
+    function readSlice() {
+      if (!dataChannel || dataChannel.readyState !== "open") return;
+
+      if (dataChannel.bufferedAmount > 1024 * 1024) {
+        setTimeout(readSlice, 20);
+        return;
+      }
+
+      const slice = file.slice(offset, offset + chunkSize);
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        if (!dataChannel || dataChannel.readyState !== "open") return;
+        const arrayBuffer = e.target.result;
+        try {
+          dataChannel.send(arrayBuffer);
+        } catch(e) {}
+
+        offset += arrayBuffer.byteLength;
+        if (offset < file.size) {
+          setTimeout(readSlice, 2);
+        } else {
+          try {
+            dataChannel.send(JSON.stringify({ type: 'end_transfer', id: fileId }));
+          } catch(e){}
+        }
+      };
+      reader.readAsArrayBuffer(slice);
+    }
+    readSlice();
   }
 }
 
@@ -290,13 +381,13 @@ function renderReceiver() {
         
         <div class="flex flex-col gap-2">
           <h1 class="font-headline-lg text-on-surface uppercase text-3xl md:text-4xl">AVAILABLE_FILE_MANIFEST</h1>
-          <p class="font-mono-data text-on-surface-variant text-xs">Tap SAVE to download files directly off laptop disk over Wi-Fi / Hotspot.</p>
+          <p class="font-mono-data text-on-surface-variant text-xs">Tap SAVE to stream files directly into device memory via local P2P.</p>
         </div>
 
         <div id="recvFileRows" class="border-2 border-outline-variant bg-background p-4 font-mono-data">
           <div class="flex items-center gap-3">
             <span class="w-3 h-3 rounded-full bg-primary-container animate-pulse"></span>
-            <span class="text-xs text-on-surface">Fetching file manifest...</span>
+            <span class="text-xs text-on-surface">Connecting to laptop sender node...</span>
           </div>
         </div>
       </div>
@@ -304,28 +395,145 @@ function renderReceiver() {
   `;
 
   let files = [];
+  let ws = null;
+  let pc = null;
+  let dataChannel = null;
+  let fileBuffers = {};
 
-  async function loadFiles() {
-    try {
-      const res = await fetch(`/api/session/${sid}/files`);
-      if (!res.ok) throw new Error("Session expired or invalid URL");
-      const data = await res.json();
-      files = data.files || [];
-      renderRecvFiles();
-      headerStatusText.textContent = "MANIFEST_LOADED";
-    } catch (err) {
-      const el = document.getElementById("recvFileRows");
-      if (el) {
-        el.innerHTML = `
-          <div class="p-4 text-error font-bold text-xs">
-            ERROR: ${err.message}. Please connect to laptop Wi-Fi / Mobile Hotspot and scan QR code again.
-          </div>
-        `;
+  function updateRecvStatus(message, isError = false) {
+    const el = document.getElementById("recvFileRows");
+    if (!el || (files && files.length > 0)) return;
+    el.innerHTML = `
+      <div class="flex flex-col gap-3 p-4 border border-outline-variant bg-surface">
+        <div class="flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full ${isError ? 'bg-error' : 'bg-primary-container animate-pulse'}"></span>
+          <span class="${isError ? 'text-error font-bold' : 'text-on-surface'} font-mono-data text-xs">${message}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  function initReceiverSignaling() {
+    updateRecvStatus(`CONNECTING SIGNAL TO SENDER (${sid})...`);
+
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    ws = new WebSocket(`${proto}://${location.host}/ws/${sid}/receiver`);
+
+    ws.onopen = () => {
+      updateRecvStatus("SIGNAL ESTABLISHED. EXCHANGING WEBRTC DIRECT KEYS...");
+    };
+
+    ws.onmessage = async (evt) => {
+      const msg = JSON.parse(evt.data);
+
+      if (msg.type === "offer") {
+        setupWebRTCReceiver(msg.sdp);
+      } else if (msg.type === "candidate" && msg.candidate && pc) {
+        try { await pc.addIceCandidate(new RTCIceCandidate(msg.candidate)); } catch(e){}
+      }
+    };
+  }
+
+  async function setupWebRTCReceiver(remoteOfferSdp) {
+    if (pc) try { pc.close(); } catch(e){}
+
+    pc = new RTCPeerConnection(RTC_CONFIG);
+
+    pc.ondatachannel = (evt) => {
+      dataChannel = evt.channel;
+      dataChannel.onopen = () => {
+        headerStatusText.textContent = "P2P_DIRECT_CONNECTED";
+        try { dataChannel.send(JSON.stringify({ type: 'get_manifest' })); } catch(e){}
+      };
+
+      dataChannel.onmessage = (evt) => {
+        if (typeof evt.data === "string") {
+          try {
+            const msg = JSON.parse(evt.data);
+            handleFileControlMessage(msg);
+          } catch(e){}
+        } else {
+          // Binary chunk
+          handleFileBinaryChunk(evt.data);
+        }
+      };
+    };
+
+    pc.onicecandidate = (evt) => {
+      if (evt.candidate && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "candidate", candidate: evt.candidate }));
+      }
+    };
+
+    await pc.setRemoteDescription(new RTCSessionDescription(remoteOfferSdp));
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "answer", sdp: answer }));
+    }
+  }
+
+  let activeFileId = null;
+
+  function handleFileControlMessage(msg) {
+    if (msg.type === 'manifest') {
+      if (msg.files && msg.files.length) {
+        files = msg.files;
+        renderRecvFilesP2P();
+      }
+    } else if (msg.type === 'start_transfer') {
+      activeFileId = msg.id;
+      if (!fileBuffers[msg.id]) {
+        fileBuffers[msg.id] = { name: msg.name || msg.id, size: msg.size || 0, chunks: [], bytesReceived: 0, done: false };
+      }
+      const btn = document.getElementById(`dlBtn-${msg.id}`);
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "STREAMING 0%...";
+      }
+    } else if (msg.type === 'end_transfer') {
+      const fId = msg.id;
+      const buf = fileBuffers[fId];
+      if (buf && buf.chunks.length > 0 && !buf.done) {
+        buf.done = true;
+        const blob = new Blob(buf.chunks);
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = buf.name || "download";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        
+        const btn = document.getElementById(`dlBtn-${fId}`);
+        if (btn) {
+          btn.textContent = "DONE ✓";
+          btn.disabled = false;
+        }
       }
     }
   }
 
-  function renderRecvFiles() {
+  function handleFileBinaryChunk(arrayBuffer) {
+    if (!activeFileId || !fileBuffers[activeFileId]) return;
+    const buf = fileBuffers[activeFileId];
+
+    buf.chunks.push(arrayBuffer);
+    buf.bytesReceived += arrayBuffer.byteLength;
+
+    const btn = document.getElementById(`dlBtn-${activeFileId}`);
+    if (btn) {
+      btn.disabled = true;
+      if (buf.size > 0) {
+        const pct = Math.min(100, Math.round((buf.bytesReceived / buf.size) * 100));
+        btn.textContent = `STREAMING ${pct}%...`;
+      } else {
+        btn.textContent = "STREAMING...";
+      }
+    }
+  }
+
+  function renderRecvFilesP2P() {
     const el = document.getElementById("recvFileRows");
     if (!files || !files.length) { el.textContent = "No files in session manifest."; return; }
 
@@ -337,17 +545,39 @@ function renderReceiver() {
               <span class="text-on-surface font-bold truncate text-sm">${f.name}</span>
               <span class="text-xs text-on-surface-variant">${fmtSize(f.size)}</span>
             </div>
-            <a href="/download/${sid}/${f.id}" download="${f.name}" id="dlBtn-${f.id}" class="bg-primary-container text-background px-4 py-2 font-label-caps flex items-center gap-2 flex-shrink-0 hover:invert text-xs font-bold">
+            <button id="dlBtn-${f.id}" class="bg-primary-container text-background px-4 py-2 font-label-caps flex items-center gap-2 flex-shrink-0 hover:invert text-xs font-bold">
               <span class="material-symbols-outlined text-sm">download</span>
               SAVE
-            </a>
+            </button>
           </div>
         `).join('')}
       </div>
     `;
+
+    files.forEach(f => {
+      const btn = document.getElementById(`dlBtn-${f.id}`);
+      if (!btn) return;
+      btn.onclick = () => {
+        btn.disabled = true;
+        btn.textContent = "REQUESTING...";
+        fileBuffers[f.id] = { name: f.name, size: f.size, chunks: [], bytesReceived: 0, done: false };
+
+        if (dataChannel && dataChannel.readyState === "open") {
+          try {
+            dataChannel.send(JSON.stringify({ type: 'request_file', id: f.id }));
+          } catch(e) {
+            btn.disabled = false;
+            btn.textContent = "RETRY SAVE";
+          }
+        } else {
+          btn.disabled = false;
+          btn.textContent = "P2P DISCONNECTED";
+        }
+      };
+    });
   }
 
-  loadFiles();
+  initReceiverSignaling();
 }
 </script>
 </body>
