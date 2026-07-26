@@ -1109,6 +1109,9 @@ function renderReceiver() {
         btn.disabled = true;
         btn.textContent = "REQUESTING...";
 
+        // Reset buffer state for fresh transfer attempt
+        fileBuffers[f.id] = { name: f.name, size: f.size, chunks: [], bytesReceived: 0, done: false };
+
         if (requestTimeouts[f.id]) clearTimeout(requestTimeouts[f.id]);
         requestTimeouts[f.id] = setTimeout(() => {
           const currentBtn = document.getElementById(`dlBtn-${f.id}`);
