@@ -133,6 +133,11 @@
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Anton:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+<script>
+if (typeof Peer === 'undefined') {
+  document.write('<script src="https://cdn.jsdelivr.net/npm/peerjs@1.5.2/dist/peerjs.min.js"><\/script>');
+}
+</script>
 </head>
 <body class="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-background">
 
@@ -168,11 +173,41 @@
 
 <script>
 const params = new URLSearchParams(location.search);
-const sid = params.get("sid");
+const rawSid = params.get("sid") || (location.hash ? new URLSearchParams(location.hash.substring(1)).get("sid") : null);
+const sid = rawSid ? rawSid.trim() : null;
 const app = document.getElementById("app");
 const statusDot = document.getElementById("statusDot");
 const headerStatusText = document.getElementById("headerStatusText");
 const browserFileInput = document.getElementById("browserFileInput");
+
+const PEER_CONFIG = {
+  debug: 1,
+  config: {
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      { urls: 'stun:stun1.l.google.com:19302' },
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:global.stun.twilio.com:3478' },
+      {
+        urls: 'turn:openrelay.metered.ca:80',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      },
+      {
+        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+        username: 'openrelayproject',
+        credential: 'openrelayproject'
+      }
+    ]
+  }
+};
 
 function fmtSize(bytes) {
   if (bytes < 1024) return bytes + " B";
@@ -433,7 +468,6 @@ function renderSender() {
         await setupNetworkAndQR();
       }
     } catch (err) {
-      // Static Netlify Host Fallback -> Browser File Picker!
       isStaticHost = true;
       browserFileInput.click();
     }
@@ -475,6 +509,8 @@ function renderSender() {
     if (!isStaticHost) {
       try {
         const res = await fetch("/api/network-interfaces");
+        const contentType = res.headers.get("content-type") || "";
+        if (!res.ok || contentType.includes("text/html")) throw new Error("P2P Mode (Static Host)");
         const data = await res.json();
         wifiIp = data.ip || "127.0.0.1";
         await createLocalSession();
@@ -510,12 +546,22 @@ function renderSender() {
     document.getElementById("pairStatusText").textContent = "STATUS: INITIALIZING WEBRTC P2P SIGNAL...";
 
     if (typeof Peer !== 'undefined') {
-      p2pPeer = new Peer(currentSid);
+      p2pPeer = new Peer(currentSid, PEER_CONFIG);
       
       p2pPeer.on('open', () => {
         headerStatusText.textContent = "P2P_SIGNAL_READY";
         statusDot.className = "w-2.5 h-2.5 rounded-full bg-primary-container animate-ping";
         document.getElementById("pairStatusText").textContent = "STATUS: WAITING FOR PHONE TO SCAN QR CODE...";
+      });
+
+      p2pPeer.on('disconnected', () => {
+        document.getElementById("pairStatusText").textContent = "STATUS: SIGNAL DISCONNECTED. RECONNECTING...";
+        try { p2pPeer.reconnect(); } catch (e) {}
+      });
+
+      p2pPeer.on('error', (err) => {
+        console.warn("Sender PeerJS error:", err);
+        document.getElementById("pairStatusText").textContent = `STATUS: P2P SIGNAL ERROR (${err.type || 'error'}). RETRYING...`;
       });
 
       p2pPeer.on('connection', (conn) => {
@@ -525,9 +571,20 @@ function renderSender() {
         document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
         document.getElementById("startBtn").style.display = "flex";
 
+        const sendManifest = () => {
+          if (selectedFiles && selectedFiles.length > 0) {
+            conn.send({
+              type: 'manifest',
+              files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
+            });
+          }
+        };
+
+        conn.on('open', sendManifest);
+
         conn.on('data', (msg) => {
           if (msg && msg.type === 'get_manifest') {
-            conn.send({ type: 'manifest', files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size })) });
+            sendManifest();
           } else if (msg && msg.type === 'request_file') {
             streamFileToPeer(msg.id, conn);
           }
@@ -615,7 +672,10 @@ function renderReceiver() {
         </button>
 
         <div id="recvFileRows" class="border-2 border-outline-variant bg-background p-4 font-mono-data">
-          Loading file manifest…
+          <div class="flex items-center gap-3">
+            <span class="w-3 h-3 rounded-full bg-primary-container animate-pulse"></span>
+            <span>Initializing connection to sender...</span>
+          </div>
         </div>
       </div>
     </section>
@@ -624,38 +684,98 @@ function renderReceiver() {
   let files = [];
   let p2pConn = null;
   let fileBuffers = {};
+  let p2pRetryTimer = null;
+  let p2pAttempts = 0;
+
+  function updateRecvStatus(message, isError = false, showRetryBtn = false) {
+    const el = document.getElementById("recvFileRows");
+    if (!el) return;
+    el.innerHTML = `
+      <div class="flex flex-col gap-3 p-4 border border-outline-variant bg-surface">
+        <div class="flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full ${isError ? 'bg-error' : 'bg-primary-container animate-pulse'}"></span>
+          <span class="${isError ? 'text-error font-bold' : 'text-on-surface'} font-mono-data">${message}</span>
+        </div>
+        ${showRetryBtn ? `
+          <button id="manualRetryBtn" class="mt-2 bg-primary-container text-background px-4 py-2 font-label-caps uppercase self-start hover:brightness-110 flex items-center gap-2">
+            <span class="material-symbols-outlined text-sm">refresh</span>
+            RETRY P2P CONNECTION
+          </button>
+        ` : ''}
+      </div>
+    `;
+    if (showRetryBtn) {
+      const btn = document.getElementById("manualRetryBtn");
+      if (btn) {
+        btn.onclick = () => {
+          p2pAttempts = 0;
+          connectP2PReceiver();
+        };
+      }
+    }
+  }
 
   async function loadFiles() {
     try {
       const res = await fetch(`/api/session/${sid}/files`);
-      if (!res.ok) throw new Error("P2P Mode");
+      const contentType = res.headers.get("content-type") || "";
+      if (!res.ok || contentType.includes("text/html")) throw new Error("P2P Mode");
       const data = await res.json();
       if (data.error) throw new Error(data.error);
       files = data.files || [];
       renderRecvFiles();
       connectReceiverWS();
     } catch (err) {
-      // Connect via WebRTC P2P (Netlify static host)
       connectP2PReceiver();
     }
   }
 
   function connectP2PReceiver() {
-    if (typeof Peer === 'undefined') return;
-    const peer = new Peer();
+    if (typeof Peer === 'undefined') {
+      updateRecvStatus("ERROR: PeerJS library failed to load. Check internet or adblocker.", true, true);
+      return;
+    }
+
+    if (p2pRetryTimer) {
+      clearTimeout(p2pRetryTimer);
+      p2pRetryTimer = null;
+    }
+
+    p2pAttempts++;
+    updateRecvStatus(`INITIALIZING WEBRTC P2P SIGNAL (ATTEMPT ${p2pAttempts})...`);
+
+    const peer = new Peer(PEER_CONFIG);
     
     peer.on('open', () => {
-      p2pConn = peer.connect(sid);
+      updateRecvStatus(`P2P SIGNAL ESTABLISHED. CONNECTING TO SENDER (${sid})...`);
+      
+      try {
+        p2pConn = peer.connect(sid, { reliable: true });
+      } catch (err) {
+        updateRecvStatus(`CONNECTION FAILED: ${err.message}. RETRYING...`, true, true);
+        return;
+      }
       
       p2pConn.on('open', () => {
         headerStatusText.textContent = "P2P_CONNECTED";
+        updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
         p2pConn.send({ type: 'get_manifest' });
+
+        setTimeout(() => {
+          if ((!files || files.length === 0) && p2pConn && p2pConn.open) {
+            p2pConn.send({ type: 'get_manifest' });
+          }
+        }, 2500);
       });
 
       p2pConn.on('data', (msg) => {
         if (msg && msg.type === 'manifest') {
           files = msg.files || [];
-          renderRecvFilesP2P();
+          if (!files.length) {
+            updateRecvStatus("No files in session manifest.", false, false);
+          } else {
+            renderRecvFilesP2P();
+          }
         } else if (msg && msg.type === 'start_transfer') {
           fileBuffers[msg.id] = { name: msg.name, chunks: [] };
           const btn = document.getElementById(`dlBtn-${msg.id}`);
@@ -679,6 +799,28 @@ function renderReceiver() {
           }
         }
       });
+
+      p2pConn.on('close', () => {
+        headerStatusText.textContent = "DISCONNECTED";
+        updateRecvStatus("PEER CONNECTION CLOSED. RETRYING...", true, true);
+      });
+
+      p2pConn.on('error', (err) => {
+        updateRecvStatus(`DATA CHANNEL ERROR: ${err.message || err}`, true, true);
+      });
+    });
+
+    peer.on('error', (err) => {
+      console.warn("Receiver PeerJS error:", err);
+      let msg = `P2P ERROR (${err.type || 'unknown'})`;
+      if (err.type === 'peer-unavailable') {
+        msg = `SENDER NODE NOT READY YET. PLEASE MAKE SURE LAPTOP HAS FILES INDEXED & TAB IS OPEN.`;
+      }
+      updateRecvStatus(`${msg} — RETRYING IN 3s...`, true, true);
+
+      p2pRetryTimer = setTimeout(() => {
+        connectP2PReceiver();
+      }, 3000);
     });
   }
 
