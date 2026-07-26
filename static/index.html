@@ -4,8 +4,8 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <meta name="author" content="Aman Srivastava"/>
-<meta name="description" content="DUCKTAPE INDUSTRIAL — High-speed zero-cloud file streaming created by Aman Srivastava."/>
-<title>DUCKTAPE INDUSTRIAL — High-Speed File Transfer</title>
+<meta name="description" content="DUCKTAPE INDUSTRIAL — Zero-cloud local LAN file streaming created by Aman Srivastava."/>
+<title>DUCKTAPE INDUSTRIAL — High-Speed Local LAN File Transfer</title>
 <style>
   @layer base {
     html, body { margin: 0; padding: 0; }
@@ -73,7 +73,7 @@
     </div>
     <div class="flex items-center gap-2">
       <span class="w-2.5 h-2.5 rounded-full bg-primary-container animate-pulse" id="statusDot"></span>
-      <span class="font-mono-data text-xs text-primary-container uppercase" id="headerStatusText">SYSTEM_READY</span>
+      <span class="font-mono-data text-xs text-primary-container uppercase" id="headerStatusText">LOCAL_LAN_READY</span>
     </div>
   </div>
 </header>
@@ -86,7 +86,7 @@
   <div class="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row justify-between items-end gap-4">
     <div class="text-left">
       <div class="font-headline-sm text-on-surface uppercase">DUCKTAPE INDUSTRIAL</div>
-      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 3.0.0</div>
+      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 3.1.0</div>
     </div>
     <div class="h-8 w-48 bg-[repeating-linear-gradient(45deg,#f4c60e,#f4c60e_10px,#131313_10px,#131313_20px)]"></div>
   </div>
@@ -113,13 +113,14 @@ sid ? renderReceiver() : renderSender();
 // ============================== SENDER (LAPTOP) ==============================
 function renderSender() {
   let selectedFiles = [];
+  let wifiIp = null;
   let currentSid = null;
 
   app.innerHTML = `
     <section class="relative w-full min-h-[85vh] flex flex-col items-center justify-center industrial-grid overflow-hidden py-12">
       <div class="relative flex flex-col items-center gap-8">
         <div class="relative bg-on-surface text-background px-4 py-2 font-label-caps animate-bounce text-center text-xs font-bold">
-          Click to select files to stream
+          Click to select files from laptop disk
           <div class="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-on-surface"></div>
         </div>
 
@@ -134,10 +135,10 @@ function renderSender() {
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center gap-3 font-mono-data text-xs text-primary-container">
             <span class="w-2.5 h-2.5 bg-primary-container animate-pulse"></span>
-            <span id="heroStatusText">SYSTEM_READY_FOR_FILES</span>
+            <span id="heroStatusText">SYSTEM_READY_FOR_INDEXING</span>
           </div>
           <div class="font-mono-data text-[11px] text-on-surface-variant/60 tracking-[0.2em] uppercase text-center max-w-md">
-            Direct Zero-Cloud File Streaming // Hardware Encrypted Stream
+            Direct Zero-Cloud File Streaming // Hardware Encrypted Local LAN Stream
           </div>
         </div>
       </div>
@@ -150,7 +151,7 @@ function renderSender() {
         <div class="flex flex-col gap-6">
           <div class="border-l-4 border-primary-container pl-4">
             <h2 class="font-headline-md text-on-surface uppercase text-2xl">INDEXED_FILE_MANIFEST</h2>
-            <p class="font-mono-data text-on-surface-variant text-sm" id="fileCountText">0 files ready for direct streaming</p>
+            <p class="font-mono-data text-on-surface-variant text-sm" id="fileCountText">0 files indexed off laptop disk</p>
           </div>
           
           <div class="border-2 border-outline-variant bg-background p-4 overflow-x-auto max-h-96">
@@ -173,7 +174,7 @@ function renderSender() {
           <div class="border-2 border-primary-container p-4 bg-surface-container-low flex items-center gap-4">
             <span class="material-symbols-outlined text-primary-container text-[32px]">qr_code_scanner</span>
             <div class="font-mono-data text-xs text-on-surface uppercase">
-              <strong>Connection Notice:</strong> Scan QR code using phone camera to pair and download files.
+              <strong>Local Wi-Fi / Hotspot:</strong> Connect phone to same Wi-Fi / Mobile Hotspot and scan QR code.
             </div>
           </div>
 
@@ -185,6 +186,7 @@ function renderSender() {
               ...
             </div>
           </div>
+
         </div>
 
       </div>
@@ -195,52 +197,50 @@ function renderSender() {
   const heroStatusText = document.getElementById("heroStatusText");
   const circleBtnText = document.getElementById("circleBtnText");
 
-  uploadCircleBtn.onclick = () => {
-    browserFileInput.click();
+  uploadCircleBtn.onclick = async () => {
+    uploadCircleBtn.disabled = true;
+    circleBtnText.textContent = "INDEXING...";
+    heroStatusText.textContent = "INDEXING_FILES_OFF_LAPTOP_DISK...";
+
+    try {
+      const res = await fetch("/api/select-files", { method: "POST" });
+      if (!res.ok) throw new Error("Native picker error");
+      const data = await res.json();
+      uploadCircleBtn.disabled = false;
+      
+      if (data.files && data.files.length) {
+        selectedFiles = data.files;
+        circleBtnText.textContent = "ADD MORE";
+        heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_OFF_DISK`;
+        renderFilesManifest();
+        await setupNetworkAndQR();
+      } else {
+        circleBtnText.textContent = "SELECT";
+        heroStatusText.textContent = "SYSTEM_READY_FOR_INDEXING";
+      }
+    } catch (err) {
+      browserFileInput.click();
+    }
   };
 
   browserFileInput.onchange = async () => {
+    uploadCircleBtn.disabled = false;
     if (!browserFileInput.files.length) return;
     
-    uploadCircleBtn.disabled = true;
-    circleBtnText.textContent = "UPLOADING...";
-    heroStatusText.textContent = "INDEXING_AND_PREPARING_STREAM...";
+    selectedFiles = Array.from(browserFileInput.files).map((f, i) => ({
+      id: 'f_' + Date.now() + '_' + i,
+      name: f.name,
+      size: f.size
+    }));
 
-    const formData = new FormData();
-    for (const f of browserFileInput.files) {
-      formData.append("file", f);
-    }
-
-    try {
-      const res = await fetch("/api/upload", {
-        method: "POST",
-        body: formData
-      });
-      if (!res.ok) throw new Error("Upload failed");
-      const data = await res.json();
-      
-      uploadCircleBtn.disabled = false;
-      circleBtnText.textContent = "ADD MORE";
-      selectedFiles = data.files || [];
-      currentSid = data.sid;
-
-      heroStatusText.textContent = `STREAM_NODE_READY_${selectedFiles.length}_FILES`;
-      headerStatusText.textContent = "STREAM_LIVE";
-      renderFilesManifest();
-
-      document.getElementById("qrImg").src = `/api/qrcode/${currentSid}`;
-      document.getElementById("ipDisplayText").textContent = data.url;
-    } catch(err) {
-      alert("Error preparing stream node: " + err.message);
-      uploadCircleBtn.disabled = false;
-      circleBtnText.textContent = "RETRY";
-      heroStatusText.textContent = "STREAM_PREPARATION_FAILED";
-    }
+    circleBtnText.textContent = "ADD MORE";
+    heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_IN_BROWSER`;
+    renderFilesManifest();
   };
 
   function renderFilesManifest() {
     document.getElementById("deploymentSection").style.display = "block";
-    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) ready for direct stream download`;
+    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for direct stream download`;
     
     const tbody = document.getElementById("fileTableBody");
     tbody.innerHTML = selectedFiles.map(f => `
@@ -251,6 +251,31 @@ function renderSender() {
     `).join("");
 
     document.getElementById("deploymentSection").scrollIntoView({ behavior: 'smooth' });
+  }
+
+  async function setupNetworkAndQR() {
+    try {
+      const res = await fetch("/api/network-interfaces");
+      const data = await res.json();
+      wifiIp = data.ip || "127.0.0.1";
+      await createLocalSession();
+    } catch (err) {
+      console.warn("Network interface error:", err);
+    }
+  }
+
+  async function createLocalSession() {
+    const res = await fetch("/api/create-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip: wifiIp, file_ids: selectedFiles.map(f => f.id) }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    currentSid = data.sid;
+
+    document.getElementById("qrImg").src = `/api/qrcode/${currentSid}?t=${Date.now()}`;
+    document.getElementById("ipDisplayText").textContent = `http://${wifiIp}:8080/?sid=${currentSid}`;
   }
 }
 
@@ -265,7 +290,7 @@ function renderReceiver() {
         
         <div class="flex flex-col gap-2">
           <h1 class="font-headline-lg text-on-surface uppercase text-3xl md:text-4xl">AVAILABLE_FILE_MANIFEST</h1>
-          <p class="font-mono-data text-on-surface-variant text-xs">Tap SAVE to download files directly to your device.</p>
+          <p class="font-mono-data text-on-surface-variant text-xs">Tap SAVE to download files directly off laptop disk over Wi-Fi / Hotspot.</p>
         </div>
 
         <div id="recvFileRows" class="border-2 border-outline-variant bg-background p-4 font-mono-data">
@@ -293,7 +318,7 @@ function renderReceiver() {
       if (el) {
         el.innerHTML = `
           <div class="p-4 text-error font-bold text-xs">
-            ERROR: ${err.message}. Please scan the QR code again or make sure the sender has files ready.
+            ERROR: ${err.message}. Please connect to laptop Wi-Fi / Mobile Hotspot and scan QR code again.
           </div>
         `;
       }
