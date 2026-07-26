@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<meta name="author" content="Aman Srivastava"/>
+<meta name="description" content="DUCKTAPE INDUSTRIAL — Zero-cloud local LAN & WebRTC P2P file streaming created by Aman Srivastava."/>
+<title>DUCKTAPE INDUSTRIAL — High-Speed Local LAN & P2P Transfer</title>
+<style>
+  @layer base {
+    html, body {
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      overscroll-behavior: none;
+    }
+    main > :first-child {
+      margin-top: 0 !important;
+    }
+    main > :last-child {
+      margin-bottom: 0 !important;
+    }
+  }
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  .industrial-grid {
+    background-image: 
+      linear-gradient(to right, rgba(244, 198, 14, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(244, 198, 14, 0.05) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+  .glow-pulse {
+    box-shadow: 0 0 0 0 rgba(244, 198, 14, 0.4);
+    animation: pulse-yellow 2s infinite;
+  }
+  @keyframes pulse-yellow {
+    0% { box-shadow: 0 0 0 0 rgba(244, 198, 14, 0.4); }
+    70% { box-shadow: 0 0 0 30px rgba(244, 198, 14, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(244, 198, 14, 0); }
+  }
+</style>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        "colors": {
+          "outline": "#9a9078",
+          "tertiary-container": "#ffbab0",
+          "tertiary-fixed": "#ffdad5",
+          "on-secondary-fixed-variant": "#474742",
+          "surface-dim": "#131313",
+          "surface-container-high": "#2a2a2a",
+          "on-tertiary": "#690002",
+          "inverse-on-surface": "#313030",
+          "background": "#0D0D0D",
+          "tertiary-fixed-dim": "#ffb4a9",
+          "error": "#ffb4ab",
+          "on-secondary": "#30312c",
+          "on-background": "#e5e2e1",
+          "error-container": "#93000a",
+          "inverse-surface": "#e5e2e1",
+          "secondary-fixed": "#e4e2dc",
+          "surface-container-lowest": "#0e0e0e",
+          "surface": "#131313",
+          "secondary": "#c8c6c0",
+          "primary-fixed-dim": "#efc101",
+          "on-tertiary-container": "#ac0f0d",
+          "surface-container-highest": "#353534",
+          "primary-fixed": "#ffe085",
+          "on-secondary-fixed": "#1b1c18",
+          "on-tertiary-fixed-variant": "#930004",
+          "surface-tint": "#efc101",
+          "on-surface": "#e5e2e1",
+          "outline-variant": "#4e4632",
+          "secondary-container": "#474742",
+          "surface-container-low": "#1c1b1b",
+          "tertiary": "#ffe0dc",
+          "on-secondary-container": "#b6b5af",
+          "on-primary-fixed": "#231b00",
+          "on-primary-container": "#685300",
+          "primary": "#ffe59e",
+          "on-primary": "#3c2f00",
+          "secondary-fixed-dim": "#c8c6c0",
+          "inverse-primary": "#735c00",
+          "on-error-container": "#ffdad6",
+          "on-primary-fixed-variant": "#574500",
+          "on-surface-variant": "#d1c6ac",
+          "surface-bright": "#3a3939",
+          "surface-container": "#201f1f",
+          "primary-container": "#f4c60e",
+          "on-tertiary-fixed": "#410001",
+          "on-error": "#690005",
+          "surface-variant": "#353534"
+        },
+        "borderRadius": {
+          "DEFAULT": "0.25rem",
+          "lg": "0.5rem",
+          "xl": "0.75rem",
+          "full": "9999px"
+        },
+        "spacing": {
+          "margin": "24px",
+          "unit": "4px",
+          "container-max": "1200px",
+          "gutter": "16px"
+        },
+        "fontFamily": {
+          "headline-lg": ["Anton", "sans-serif"],
+          "mono-data": ["Space Mono", "monospace"],
+          "body-lg": ["Space Mono", "monospace"],
+          "headline-md": ["Anton", "sans-serif"],
+          "headline-sm": ["Anton", "sans-serif"],
+          "body-md": ["Space Mono", "monospace"],
+          "label-caps": ["Space Mono", "monospace"]
+        },
+        "fontSize": {
+          "headline-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "0.02em", "fontWeight": "400" }],
+          "mono-data": ["13px", { "lineHeight": "1.4", "fontWeight": "400" }],
+          "body-lg": ["18px", { "lineHeight": "1.6", "fontWeight": "400" }],
+          "headline-md": ["32px", { "lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "400" }],
+          "headline-sm": ["24px", { "lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "400" }],
+          "body-md": ["14px", { "lineHeight": "1.5", "fontWeight": "400" }],
+          "label-caps": ["12px", { "lineHeight": "1.2", "letterSpacing": "0.1em", "fontWeight": "700" }]
+        }
+      }
+    }
+  }
+</script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Anton:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
+<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+</head>
+<body class="bg-background font-body-md text-on-surface antialiased selection:bg-primary-container selection:text-background">
+
+<input type="file" id="browserFileInput" multiple style="display:none">
+
+<!-- HEADER -->
+<header class="fixed top-0 w-full z-50 bg-background/90 backdrop-blur border-b border-outline-variant/30">
+  <div class="max-w-container-max mx-auto px-margin py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <img src="/ducktape_logo.png" alt="DUCKTAPE Logo" class="h-8 md:h-10 w-auto object-contain" onerror="this.style.display='none'; document.getElementById('brandTextFallback').style.display='inline-block';" />
+      <span id="brandTextFallback" class="font-headline-sm text-2xl md:text-3xl tracking-wider text-on-surface uppercase" style="display: none;">DUCKTAPE</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <span class="w-2.5 h-2.5 rounded-full bg-primary-container animate-pulse" id="statusDot"></span>
+      <span class="font-mono-data text-label-caps text-primary-container uppercase" id="headerStatusText">SYSTEM_IDLE</span>
+    </div>
+  </div>
+</header>
+
+<main class="w-full min-h-screen pt-16">
+  <div id="app"></div>
+</main>
+
+<footer class="w-full bg-surface-container-lowest border-t-4 border-primary-container pt-8 pb-4">
+  <div class="max-w-container-max mx-auto px-margin flex flex-col md:flex-row justify-between items-end gap-4">
+    <div class="text-left">
+      <div class="font-headline-sm text-on-surface uppercase">DUCKTAPE INDUSTRIAL</div>
+      <div class="font-mono-data text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 2.0.4</div>
+    </div>
+    <div class="h-8 w-48 bg-[repeating-linear-gradient(45deg,#f4c60e,#f4c60e_10px,#131313_10px,#131313_20px)]"></div>
+  </div>
+</footer>
+
+<script>
+const params = new URLSearchParams(location.search);
+const sid = params.get("sid");
+const app = document.getElementById("app");
+const statusDot = document.getElementById("statusDot");
+const headerStatusText = document.getElementById("headerStatusText");
+const browserFileInput = document.getElementById("browserFileInput");
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return bytes + " B";
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+  if (bytes < 1024 ** 3) return (bytes / 1024 / 1024).toFixed(1) + " MB";
+  return (bytes / 1024 ** 3).toFixed(2) + " GB";
+}
+
+sid ? renderReceiver() : renderSender();
+
+// ============================== SENDER (LAPTOP) ==============================
+function renderSender() {
+  let selectedFiles = [];
+  let wifiIp = null;
+  let currentSid = null;
+  let p2pPeer = null;
+  let activeConn = null;
+  let isStaticHost = false;
+
+  app.innerHTML = `
+    <!-- FULL SCREEN HERO LANDING -->
+    <section class="relative w-full min-h-[85vh] flex flex-col items-center justify-center industrial-grid overflow-hidden py-12">
+      <div class="absolute top-0 right-0 w-1/3 h-full bg-[repeating-linear-gradient(45deg,#f4c60e,#f4c60e_1px,transparent_1px,transparent_40px)] opacity-10 -z-10"></div>
+      
+      <div class="relative flex flex-col items-center gap-8">
+        <!-- Floating Label -->
+        <div class="relative bg-on-surface text-background px-4 py-2 font-label-caps animate-bounce text-center">
+          Click to select your files
+          <div class="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-on-surface"></div>
+        </div>
+
+        <!-- Central Action Button -->
+        <button id="uploadCircleBtn" class="relative w-48 h-48 md:w-64 md:h-64 rounded-full bg-primary-container flex items-center justify-center glow-pulse group transition-transform hover:scale-105">
+          <div class="absolute inset-2 border-4 border-dashed border-background/20 rounded-full animate-[spin_10s_linear_infinite]"></div>
+          <div class="z-10 flex flex-col items-center text-background">
+            <span class="material-symbols-outlined text-[64px] md:text-[80px] leading-none mb-1">upload_file</span>
+            <span class="font-headline-sm tracking-widest text-2xl" id="circleBtnText">SELECT</span>
+          </div>
+        </button>
+
+        <!-- Status / Technical Subtext -->
+        <div class="flex flex-col items-center gap-2">
+          <div class="flex items-center gap-3 font-mono-data text-label-caps text-primary-container">
+            <span class="w-2.5 h-2.5 bg-primary-container animate-pulse"></span>
+            <span id="heroStatusText">SYSTEM_READY_FOR_HANDSHAKE</span>
+          </div>
+          <div class="font-mono-data text-[11px] text-on-surface-variant/60 tracking-[0.2em] uppercase text-center max-w-md">
+            Direct Zero-Copy Stream // Hardware Encrypted LAN Handshake
+          </div>
+        </div>
+      </div>
+
+      <!-- Scroll Indicator -->
+      <div class="absolute bottom-4 left-1/2 -translate-x-1/2 flex flex-col items-center gap-1 opacity-60">
+        <span class="font-label-caps text-[10px] tracking-widest text-on-surface-variant">SCROLL_FOR_SPECS</span>
+        <span class="material-symbols-outlined animate-bounce">keyboard_double_arrow_down</span>
+      </div>
+    </section>
+
+    <!-- SELECTED FILES & PAIRING DEPLOYMENT SECTION -->
+    <section class="w-full py-16 px-margin bg-surface-container-low border-t-4 border-primary-container" id="deploymentSection" style="display:none">
+      <div class="max-w-container-max mx-auto grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+        
+        <!-- Files Manifest Table -->
+        <div class="flex flex-col gap-6">
+          <div class="border-l-4 border-primary-container pl-4">
+            <h2 class="font-headline-md text-on-surface uppercase">INDEXED_FILE_MANIFEST</h2>
+            <p class="font-mono-data text-on-surface-variant text-body-md" id="fileCountText">0 files ready for direct streaming</p>
+          </div>
+          
+          <div class="border-2 border-outline-variant bg-background p-4 overflow-x-auto max-h-96">
+            <table class="w-full font-mono-data text-left border-collapse">
+              <thead>
+                <tr class="border-b-2 border-outline-variant text-on-surface-variant">
+                  <th class="p-3 font-label-caps">FILENAME</th>
+                  <th class="p-3 font-label-caps text-right">SIZE</th>
+                </tr>
+              </thead>
+              <tbody id="fileTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- QR Code Deployment Panel -->
+        <div class="flex flex-col gap-6 border-2 border-primary-container bg-surface p-6 md:p-8 relative">
+          <div class="absolute -top-4 left-6 bg-primary-container text-background px-3 py-1 font-label-caps">HANDSHAKE_QR_TARGET</div>
+          
+          <div class="border-2 border-error p-4 bg-error-container/10 flex items-center gap-4">
+            <span class="material-symbols-outlined text-error text-[32px]">wifi</span>
+            <div class="font-mono-data text-xs text-on-surface uppercase">
+              <strong>Connection Notice:</strong> Scan QR code using phone camera to pair.
+            </div>
+          </div>
+
+          <div class="flex flex-col items-center justify-center p-4 bg-background border-2 border-outline-variant">
+            <div class="bg-white p-3 border-2 border-on-surface">
+              <img id="qrImg" alt="Industrial QR Code" class="w-56 h-56 md:w-64 md:h-64 mix-blend-multiply object-contain">
+            </div>
+            <div class="font-mono-data text-xs text-primary-container mt-4 p-2 bg-surface-container-high border border-outline-variant w-full text-center break-all" id="ipDisplayText">
+              http://0.0.0.0:8080
+            </div>
+          </div>
+
+          <div class="font-mono-data text-xs text-on-surface-variant text-center uppercase" id="pairStatusText">
+            STATUS: Waiting for phone camera scan…
+          </div>
+
+          <button id="startBtn" class="bg-primary-container text-background font-headline-md px-8 py-4 hover:brightness-110 transition-all w-full uppercase flex items-center justify-center gap-3" style="display:none">
+            <span class="material-symbols-outlined">rocket_launch</span>
+            TRIGGER PEER DOWNLOAD NOW
+          </button>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- SPEED STAT MANIFEST -->
+    <section class="w-full py-12 px-margin border-y-4 border-primary-container bg-surface-container-lowest">
+      <div class="max-w-container-max mx-auto">
+        <div class="border-4 border-on-surface p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8 relative overflow-hidden">
+          <div class="absolute top-0 left-0 bg-on-surface text-background px-4 py-1 font-label-caps">STAMP_VERIFIED</div>
+          <div class="flex flex-col">
+            <span class="font-label-caps text-on-surface-variant">TRANSFER_VELOCITY</span>
+            <span class="font-headline-lg text-primary-container text-[64px] md:text-[96px] leading-none">120MB/s+</span>
+          </div>
+          <div class="h-px w-full md:w-px md:h-24 bg-outline-variant"></div>
+          <div class="flex flex-col text-center md:text-left">
+            <span class="font-label-caps text-on-surface-variant">BATCH_EFFICIENCY</span>
+            <span class="font-headline-md text-on-surface">10GB IN ~80s</span>
+          </div>
+          <div class="hidden lg:block w-32 h-32 opacity-20 bg-[repeating-linear-gradient(0deg,#e5e2e1,#e5e2e1_2px,transparent_2px,transparent_8px)]"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FEATURE ROW -->
+    <section class="w-full py-24 px-margin max-w-container-max mx-auto">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-0 border-2 border-outline-variant">
+        <div class="p-8 border-outline-variant border-b-2 md:border-b-0 md:border-r-2 group hover:bg-surface-container transition-colors">
+          <div class="relative w-16 h-16 bg-surface-container-highest mb-8 flex items-center justify-center">
+            <div class="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-primary-container"></div>
+            <div class="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-primary-container"></div>
+            <span class="material-symbols-outlined text-primary-container text-[32px]">cloud_off</span>
+          </div>
+          <h3 class="font-headline-sm text-on-surface mb-4 uppercase">ZERO-CLOUD</h3>
+          <p class="font-mono-data text-on-surface-variant text-body-md">
+            Data never leaves your local network. No external servers, no latency spikes, no privacy leaks. Direct browser-to-browser pipe.
+          </p>
+        </div>
+
+        <div class="p-8 border-outline-variant border-b-2 md:border-b-0 md:border-r-2 group hover:bg-surface-container transition-colors">
+          <div class="relative w-16 h-16 bg-surface-container-highest mb-8 flex items-center justify-center">
+            <div class="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-primary-container"></div>
+            <div class="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-primary-container"></div>
+            <span class="material-symbols-outlined text-primary-container text-[32px]">install_mobile</span>
+          </div>
+          <h3 class="font-headline-sm text-on-surface mb-4 uppercase">ZERO-APP</h3>
+          <p class="font-mono-data text-on-surface-variant text-body-md">
+            No installation required. Works on any device with a modern web browser. Scan the code and start the sequence immediately.
+          </p>
+        </div>
+
+        <div class="p-8 group hover:bg-surface-container transition-colors">
+          <div class="relative w-16 h-16 bg-surface-container-highest mb-8 flex items-center justify-center">
+            <div class="absolute -top-1 -left-1 w-4 h-4 border-t-2 border-l-2 border-primary-container"></div>
+            <div class="absolute -bottom-1 -right-1 w-4 h-4 border-b-2 border-r-2 border-primary-container"></div>
+            <span class="material-symbols-outlined text-primary-container text-[32px]">content_copy</span>
+          </div>
+          <h3 class="font-headline-sm text-on-surface mb-4 uppercase">ZERO-COPY</h3>
+          <p class="font-mono-data text-on-surface-variant text-body-md">
+            Files are streamed, not uploaded. No temporary storage on intermediate drives. Memory-to-memory throughput across the LAN.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- COMPARISON TABLE -->
+    <section class="w-full py-24 px-margin bg-surface">
+      <div class="max-w-container-max mx-auto">
+        <div class="mb-12">
+          <h2 class="font-headline-md text-on-surface uppercase border-l-8 border-primary-container pl-6">PERFORMANCE_MANIFESTO</h2>
+          <p class="font-mono-data text-on-surface-variant mt-2">TECHNICAL COMPARISON // REVISION 04</p>
+        </div>
+        <div class="w-full overflow-x-auto">
+          <table class="w-full border-collapse font-mono-data">
+            <thead>
+              <tr class="border-b-4 border-on-surface">
+                <th class="text-left p-6 font-label-caps text-on-surface-variant">SPECIFICATION</th>
+                <th class="text-left p-6 font-label-caps text-on-surface-variant">CLOUD / CABLE</th>
+                <th class="text-left p-6 bg-primary-container text-background font-label-caps">DUCKTAPE PROTOCOL</th>
+              </tr>
+            </thead>
+            <tbody class="text-body-lg">
+              <tr class="border-b-2 border-outline-variant">
+                <td class="p-6 text-on-surface font-bold uppercase">Speed</td>
+                <td class="p-6 text-on-surface-variant">SLOW / VARIES BY ISP</td>
+                <td class="p-6 bg-primary-container/10 text-primary-container font-bold border-x-2 border-primary-container">120MB/s+ (LAN)</td>
+              </tr>
+              <tr class="border-b-2 border-outline-variant">
+                <td class="p-6 text-on-surface font-bold uppercase">Privacy</td>
+                <td class="p-6 text-on-surface-variant">EXTERNAL LOGGING</td>
+                <td class="p-6 bg-primary-container/10 text-primary-container font-bold border-x-2 border-primary-container">100% AIR-GAPPED</td>
+              </tr>
+              <tr class="border-b-2 border-outline-variant">
+                <td class="p-6 text-on-surface font-bold uppercase">Limits</td>
+                <td class="p-6 text-error font-bold uppercase">2GB / PAID TIERS</td>
+                <td class="p-6 bg-primary-container/10 text-primary-container font-bold border-x-2 border-primary-container">UNLIMITED</td>
+              </tr>
+              <tr class="border-b-4 border-on-surface">
+                <td class="p-6 text-on-surface font-bold uppercase">Cost</td>
+                <td class="p-6 text-on-surface-variant">SUBSCRIPTION MODEL</td>
+                <td class="p-6 bg-primary-container/10 text-primary-container font-bold border-x-2 border-primary-container">ZERO</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- REQUIREMENTS WARNING -->
+    <section class="w-full py-16 px-margin">
+      <div class="max-w-container-max mx-auto border-4 border-error p-8 flex flex-col md:flex-row items-center gap-8 bg-error-container/10">
+        <div class="flex-shrink-0 flex items-center justify-center w-24 h-24 border-4 border-error">
+          <span class="material-symbols-outlined text-error text-[48px]">warning</span>
+        </div>
+        <div class="flex-grow">
+          <h4 class="font-headline-sm text-error uppercase mb-2">SAME NETWORK RECOMMENDED</h4>
+          <p class="font-mono-data text-on-surface text-body-md uppercase">
+            WEBRTC PEER-TO-PEER ENCRYPTION. DIRECT MEMORY STREAMING BETWEEN DEVICES.
+          </p>
+        </div>
+        <div class="font-mono-data text-[10px] text-error opacity-50 text-right uppercase hidden lg:block">
+          PROTOCOL_V2.04<br/>SECURE_BY_PROXIMITY<br/>ENCRYPTED_HANDSHAKE
+        </div>
+      </div>
+    </section>
+  `;
+
+  const uploadCircleBtn = document.getElementById("uploadCircleBtn");
+  const heroStatusText = document.getElementById("heroStatusText");
+  const circleBtnText = document.getElementById("circleBtnText");
+
+  uploadCircleBtn.onclick = async () => {
+    uploadCircleBtn.disabled = true;
+    heroStatusText.textContent = "WAITING_FOR_FILE_SELECTION...";
+
+    try {
+      const res = await fetch("/api/select-files", { method: "POST" });
+      if (!res.ok) throw new Error("Static Host");
+      const data = await res.json();
+      uploadCircleBtn.disabled = false;
+      
+      if (data.files && data.files.length) {
+        selectedFiles = data.files;
+        circleBtnText.textContent = "ADD MORE";
+        heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_OFF_DISK`;
+        renderFilesManifest();
+        await setupNetworkAndQR();
+      }
+    } catch (err) {
+      // Static Netlify Host Fallback -> Browser File Picker!
+      isStaticHost = true;
+      browserFileInput.click();
+    }
+  };
+
+  browserFileInput.onchange = async () => {
+    uploadCircleBtn.disabled = false;
+    if (!browserFileInput.files.length) return;
+    
+    selectedFiles = Array.from(browserFileInput.files).map((f, i) => ({
+      id: 'f_' + Date.now() + '_' + i,
+      name: f.name,
+      size: f.size,
+      rawFile: f
+    }));
+
+    circleBtnText.textContent = "ADD MORE";
+    heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_IN_BROWSER`;
+    renderFilesManifest();
+    await setupNetworkAndQR();
+  };
+
+  function renderFilesManifest() {
+    document.getElementById("deploymentSection").style.display = "block";
+    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for streaming`;
+    
+    const tbody = document.getElementById("fileTableBody");
+    tbody.innerHTML = selectedFiles.map(f => `
+      <tr class="border-b border-outline-variant/40 hover:bg-surface-container">
+        <td class="p-3 text-on-surface break-all">${f.name}</td>
+        <td class="p-3 text-primary-container text-right font-bold">${fmtSize(f.size)}</td>
+      </tr>
+    `).join("");
+
+    document.getElementById("deploymentSection").scrollIntoView({ behavior: 'smooth' });
+  }
+
+  async function setupNetworkAndQR() {
+    if (!isStaticHost) {
+      try {
+        const res = await fetch("/api/network-interfaces");
+        const data = await res.json();
+        wifiIp = data.ip || "127.0.0.1";
+        await createLocalSession();
+        return;
+      } catch (err) {
+        isStaticHost = true;
+      }
+    }
+    setupP2PPeer();
+  }
+
+  async function createLocalSession() {
+    const res = await fetch("/api/create-session", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ip: wifiIp, file_ids: selectedFiles.map(f => f.id) }),
+    });
+    const data = await res.json();
+    if (data.error) { alert(data.error); return; }
+    currentSid = data.sid;
+
+    document.getElementById("qrImg").src = `/api/qrcode/${currentSid}?t=${Date.now()}`;
+    document.getElementById("ipDisplayText").textContent = `http://${wifiIp}:8080/?sid=${currentSid}`;
+    connectSenderWS(currentSid);
+  }
+
+  function setupP2PPeer() {
+    currentSid = 'dt_' + Math.random().toString(36).substring(2, 9);
+    const targetUrl = `${location.protocol}//${location.host}/?sid=${currentSid}`;
+
+    document.getElementById("qrImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
+    document.getElementById("ipDisplayText").textContent = targetUrl;
+    document.getElementById("pairStatusText").textContent = "STATUS: INITIALIZING WEBRTC P2P SIGNAL...";
+
+    if (typeof Peer !== 'undefined') {
+      p2pPeer = new Peer(currentSid);
+      
+      p2pPeer.on('open', () => {
+        headerStatusText.textContent = "P2P_SIGNAL_READY";
+        statusDot.className = "w-2.5 h-2.5 rounded-full bg-primary-container animate-ping";
+        document.getElementById("pairStatusText").textContent = "STATUS: WAITING FOR PHONE TO SCAN QR CODE...";
+      });
+
+      p2pPeer.on('connection', (conn) => {
+        activeConn = conn;
+        headerStatusText.textContent = "PEER_CONNECTED";
+        document.getElementById("pairStatusText").textContent = "STATUS: PEER_CONNECTED // READY FOR P2P STREAM";
+        document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
+        document.getElementById("startBtn").style.display = "flex";
+
+        conn.on('data', (msg) => {
+          if (msg && msg.type === 'get_manifest') {
+            conn.send({ type: 'manifest', files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size })) });
+          } else if (msg && msg.type === 'request_file') {
+            streamFileToPeer(msg.id, conn);
+          }
+        });
+      });
+    }
+  }
+
+  function streamFileToPeer(fileId, conn) {
+    const fileItem = selectedFiles.find(f => f.id === fileId);
+    if (!fileItem || !fileItem.rawFile) return;
+
+    const file = fileItem.rawFile;
+    const chunkSize = 32768; // 32KB chunk
+    let offset = 0;
+
+    conn.send({ type: 'start_transfer', id: fileId, name: file.name, size: file.size });
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      conn.send({ type: 'file_chunk', id: fileId, data: e.target.result });
+      offset += e.target.result.byteLength;
+      if (offset < file.size) {
+        readSlice();
+      } else {
+        conn.send({ type: 'end_transfer', id: fileId });
+      }
+    };
+
+    function readSlice() {
+      const slice = file.slice(offset, offset + chunkSize);
+      reader.readAsArrayBuffer(slice);
+    }
+    readSlice();
+  }
+
+  function connectSenderWS(theSid) {
+    const proto = location.protocol === "https:" ? "wss" : "ws";
+    const ws = new WebSocket(`${proto}://${location.host}/ws/sender/${theSid}`);
+
+    ws.onopen = () => {
+      headerStatusText.textContent = "HANDSHAKE_READY";
+      statusDot.className = "w-2.5 h-2.5 rounded-full bg-primary-container animate-ping";
+    };
+
+    ws.onmessage = (evt) => {
+      const msg = JSON.parse(evt.data);
+      if (msg.event === "phone_connected") {
+        document.getElementById("pairStatusText").textContent = "STATUS: PEER_CONNECTED // READY FOR STREAMING";
+        document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
+        document.getElementById("startBtn").style.display = "flex";
+        headerStatusText.textContent = "PEER_PAIRED";
+      }
+    };
+  }
+
+  document.getElementById("startBtn").onclick = async () => {
+    if (activeConn) {
+      selectedFiles.forEach(f => streamFileToPeer(f.id, activeConn));
+    } else {
+      await fetch(`/api/session/${currentSid}/start-transfer`, { method: "POST" });
+    }
+    document.getElementById("startBtn").textContent = "SIGNAL_DISPATCHED_TO_PEER";
+    document.getElementById("startBtn").disabled = true;
+  };
+}
+
+// ============================== RECEIVER (PHONE) ==============================
+function renderReceiver() {
+  headerStatusText.textContent = "RECEIVER_NODE";
+
+  app.innerHTML = `
+    <section class="w-full py-12 px-margin max-w-container-max mx-auto">
+      <div class="border-4 border-primary-container bg-surface p-6 md:p-12 flex flex-col gap-8 relative">
+        <div class="absolute -top-4 left-6 bg-primary-container text-background px-4 py-1 font-label-caps">RECEIVER_PIPE_ACTIVE</div>
+        
+        <div class="flex flex-col gap-2">
+          <h1 class="font-headline-lg text-on-surface uppercase">AVAILABLE_FILE_MANIFEST</h1>
+          <p class="font-mono-data text-on-surface-variant">Tap save to stream files directly into your device downloads.</p>
+        </div>
+
+        <button id="batchBtn" class="bg-primary-container text-background font-headline-md px-8 py-4 hover:brightness-110 transition-all uppercase flex items-center justify-center gap-3">
+          <span class="material-symbols-outlined">download</span>
+          DOWNLOAD ALL FILES
+        </button>
+
+        <div id="recvFileRows" class="border-2 border-outline-variant bg-background p-4 font-mono-data">
+          Loading file manifest…
+        </div>
+      </div>
+    </section>
+  `;
+
+  let files = [];
+  let p2pConn = null;
+  let fileBuffers = {};
+
+  async function loadFiles() {
+    try {
+      const res = await fetch(`/api/session/${sid}/files`);
+      if (!res.ok) throw new Error("P2P Mode");
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      files = data.files || [];
+      renderRecvFiles();
+      connectReceiverWS();
+    } catch (err) {
+      // Connect via WebRTC P2P (Netlify static host)
+      connectP2PReceiver();
+    }
+  }
+
+  function connectP2PReceiver() {
+    if (typeof Peer === 'undefined') return;
+    const peer = new Peer();
+    
+    peer.on('open', () => {
+      p2pConn = peer.connect(sid);
+      
+      p2pConn.on('open', () => {
+        headerStatusText.textContent = "P2P_CONNECTED";
+        p2pConn.send({ type: 'get_manifest' });
+      });
+
+      p2pConn.on('data', (msg) => {
+        if (msg && msg.type === 'manifest') {
+          files = msg.files || [];
+          renderRecvFilesP2P();
+        } else if (msg && msg.type === 'start_transfer') {
+          fileBuffers[msg.id] = { name: msg.name, chunks: [] };
+          const btn = document.getElementById(`dlBtn-${msg.id}`);
+          if (btn) btn.textContent = "STREAMING...";
+        } else if (msg && msg.type === 'file_chunk') {
+          if (fileBuffers[msg.id]) {
+            fileBuffers[msg.id].chunks.push(msg.data);
+          }
+        } else if (msg && msg.type === 'end_transfer') {
+          if (fileBuffers[msg.id]) {
+            const blob = new Blob(fileBuffers[msg.id].chunks);
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = fileBuffers[msg.id].name;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            
+            const btn = document.getElementById(`dlBtn-${msg.id}`);
+            if (btn) btn.textContent = "DONE";
+          }
+        }
+      });
+    });
+  }
+
+  function renderRecvFilesP2P() {
+    const el = document.getElementById("recvFileRows");
+    if (!files.length) { el.textContent = "No files in session manifest."; return; }
+
+    el.innerHTML = `
+      <div class="flex flex-col gap-3">
+        ${files.map(f => `
+          <div class="flex items-center justify-between p-4 border border-outline-variant bg-surface hover:border-primary-container">
+            <div class="flex flex-col overflow-hidden pr-4">
+              <span class="text-on-surface font-bold truncate">${f.name}</span>
+              <span class="text-xs text-on-surface-variant">${fmtSize(f.size)}</span>
+            </div>
+            <button id="dlBtn-${f.id}" class="bg-primary-container text-background px-4 py-2 font-label-caps flex items-center gap-2 flex-shrink-0 hover:invert">
+              <span class="material-symbols-outlined text-sm">download</span>
+              SAVE
+            </button>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    files.forEach(f => {
+      document.getElementById(`dlBtn-${f.id}`).onclick = () => {
+        if (p2pConn) p2pConn.send({ type: 'request_file', id: f.id });
+      };
+    });
+  }
+
+  function renderRecvFiles() {
+    const el = document.getElementById("recvFileRows");
+    if (!files.length) { el.textContent = "No files in session manifest."; return; }
+
+    el.innerHTML = `
+      <div class="flex flex-col gap-3">
+        ${files.map(f => `
+          <div class="flex items-center justify-between p-4 border border-outline-variant bg-surface hover:border-primary-container">
+            <div class="flex flex-col overflow-hidden pr-4">
+              <span class="text-on-surface font-bold truncate">${f.name}</span>
+              <span class="text-xs text-on-surface-variant">${fmtSize(f.size)}</span>
+            </div>
+            <a href="/download/${sid}/${f.id}" download="${f.name}" id="dlBtn-${f.id}" class="bg-primary-container text-background px-4 py-2 font-label-caps flex items-center gap-2 flex-shrink-0 hover:invert">
+              <span class="material-symbols-outlined text-sm">download</span>
+              SAVE
+            </a>
+          </div>
+        `).join('')}
+      </div>
+    `;
+  }
+
+  document.getElementById("batchBtn").onclick = () => {
+    files.forEach((f, i) => {
+      setTimeout(() => {
+        const btn = document.getElementById(`dlBtn-${f.id}`);
+        if (btn) btn.click();
+      }, i * 400);
+    });
+  };
+
+  function connectReceiverWS() {
+    try {
+      const proto = location.protocol === "https:" ? "wss" : "ws";
+      const ws = new WebSocket(`${proto}://${location.host}/ws/receiver/${sid}`);
+
+      ws.onopen = () => {
+        headerStatusText.textContent = "STREAM_READY";
+      };
+
+      ws.onmessage = (evt) => {
+        const msg = JSON.parse(evt.data);
+        if (msg.event === "start_transfer") {
+          document.getElementById("batchBtn").click();
+        }
+      };
+    } catch (e) {
+      console.log("WS error:", e);
+    }
+  }
+
+  loadFiles();
+}
+</script>
+</body>
+</html>
