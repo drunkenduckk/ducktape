@@ -573,14 +573,22 @@ function renderSender() {
 
         const sendManifest = () => {
           if (selectedFiles && selectedFiles.length > 0) {
-            conn.send({
-              type: 'manifest',
-              files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
-            });
+            try {
+              conn.send({
+                type: 'manifest',
+                files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
+              });
+            } catch (e) {
+              console.warn("Failed to send manifest:", e);
+            }
           }
         };
 
-        conn.on('open', sendManifest);
+        if (conn.open) {
+          sendManifest();
+        } else {
+          conn.on('open', sendManifest);
+        }
 
         conn.on('data', (msg) => {
           if (msg && msg.type === 'get_manifest') {
@@ -750,13 +758,22 @@ function renderReceiver() {
       updateRecvStatus(`P2P SIGNAL ESTABLISHED. CONNECTING TO SENDER (${sid})...`);
       
       try {
-        p2pConn = peer.connect(sid, { reliable: true });
+        p2pConn = peer.connect(sid);
       } catch (err) {
         updateRecvStatus(`CONNECTION FAILED: ${err.message}. RETRYING...`, true, true);
         return;
       }
-      
-      p2pConn.on('open', () => {
+
+      let connTimeout = setTimeout(() => {
+        if (!p2pConn || !p2pConn.open) {
+          updateRecvStatus(`WEBRTC NEGOTIATION STALLED WITH (${sid}). RETRYING (ATTEMPT ${p2pAttempts+1})...`, true, true);
+          try { peer.destroy(); } catch (e) {}
+          p2pRetryTimer = setTimeout(connectP2PReceiver, 2500);
+        }
+      }, 6000);
+
+      const onConnOpen = () => {
+        clearTimeout(connTimeout);
         headerStatusText.textContent = "P2P_CONNECTED";
         updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
         p2pConn.send({ type: 'get_manifest' });
@@ -765,8 +782,14 @@ function renderReceiver() {
           if ((!files || files.length === 0) && p2pConn && p2pConn.open) {
             p2pConn.send({ type: 'get_manifest' });
           }
-        }, 2500);
-      });
+        }, 2000);
+      };
+
+      if (p2pConn.open) {
+        onConnOpen();
+      } else {
+        p2pConn.on('open', onConnOpen);
+      }
 
       p2pConn.on('data', (msg) => {
         if (msg && msg.type === 'manifest') {
