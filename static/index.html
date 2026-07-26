@@ -189,22 +189,8 @@ const PEER_CONFIG = {
       { urls: 'stun:stun2.l.google.com:19302' },
       { urls: 'stun:stun3.l.google.com:19302' },
       { urls: 'stun:stun4.l.google.com:19302' },
-      { urls: 'stun:global.stun.twilio.com:3478' },
-      {
-        urls: 'turn:openrelay.metered.ca:80',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      },
-      {
-        urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      }
+      { urls: 'stun:stun.cloudflare.com:3478' },
+      { urls: 'stun:global.stun.twilio.com:3478' }
     ]
   }
 };
@@ -770,7 +756,7 @@ function renderReceiver() {
           try { peer.destroy(); } catch (e) {}
           p2pRetryTimer = setTimeout(connectP2PReceiver, 2500);
         }
-      }, 6000);
+      }, 10000);
 
       const onConnOpen = () => {
         clearTimeout(connTimeout);
@@ -785,10 +771,29 @@ function renderReceiver() {
         }, 2000);
       };
 
+      // Listen to native RTCPeerConnection ICE state changes
+      const checkPeerConnection = () => {
+        const pc = p2pConn.peerConnection || p2pConn._peerConnection;
+        if (pc) {
+          pc.oniceconnectionstatechange = () => {
+            const state = pc.iceConnectionState;
+            console.log("ICE Connection State:", state);
+            if (state === "checking") {
+              updateRecvStatus(`EXCHANGING WEBRTC SIGNALS WITH SENDER (${sid})...`);
+            } else if (state === "connected" || state === "completed") {
+              updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
+            } else if (state === "failed") {
+              updateRecvStatus(`WEBRTC DIRECT CONNECTION FAILED. RETRYING...`, true, true);
+            }
+          };
+        }
+      };
+
       if (p2pConn.open) {
         onConnOpen();
       } else {
         p2pConn.on('open', onConnOpen);
+        setTimeout(checkPeerConnection, 100);
       }
 
       p2pConn.on('data', (msg) => {
