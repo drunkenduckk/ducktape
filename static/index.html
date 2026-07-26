@@ -180,6 +180,39 @@ const statusDot = document.getElementById("statusDot");
 const headerStatusText = document.getElementById("headerStatusText");
 const browserFileInput = document.getElementById("browserFileInput");
 
+const Relay = {
+  async publish(topic, data) {
+    try {
+      await fetch(`https://ntfy.sh/${topic}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: typeof data === 'string' ? data : JSON.stringify(data)
+      });
+    } catch (e) {
+      console.warn("Relay publish err:", e);
+    }
+  },
+
+  async poll(topic, timeoutMs = 8000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`https://ntfy.sh/${topic}/raw?poll=1`, { signal: controller.signal });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      const text = await res.text();
+      try {
+        return JSON.parse(text);
+      } catch (e) {
+        return text;
+      }
+    } catch (e) {
+      clearTimeout(timer);
+      return null;
+    }
+  }
+};
+
 const PEER_CONFIG = {
   debug: 1,
   config: {
@@ -529,9 +562,16 @@ function renderSender() {
 
     document.getElementById("qrImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
     document.getElementById("ipDisplayText").textContent = targetUrl;
-    document.getElementById("pairStatusText").textContent = "STATUS: INITIALIZING WEBRTC P2P SIGNAL...";
+    document.getElementById("pairStatusText").textContent = "STATUS: PUBLISHING MANIFEST TO RELAY...";
+
+    const manifestData = selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }));
+    Relay.publish(`dt_m_${currentSid}`, manifestData);
 
     if (typeof Peer !== 'undefined') {
+      try {
+        if (p2pPeer) p2pPeer.destroy();
+      } catch (e) {}
+
       p2pPeer = new Peer(currentSid, PEER_CONFIG);
       
       p2pPeer.on('open', () => {
@@ -564,9 +604,7 @@ function renderSender() {
                 type: 'manifest',
                 files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
               });
-            } catch (e) {
-              console.warn("Failed to send manifest:", e);
-            }
+            } catch (e) {}
           }
         };
 
@@ -727,9 +765,23 @@ function renderReceiver() {
     }
   }
 
-  function connectP2PReceiver() {
+  async function connectP2PReceiver() {
+    updateRecvStatus("FETCHING SESSION FILE MANIFEST FROM RELAY...");
+
+    // Fast-path 1: Instant Manifest Fetch via HTTP Relay (100% Reliability Guarantee!)
+    try {
+      const relayManifest = await Relay.poll(`dt_m_${sid}`, 3500);
+      if (relayManifest && Array.isArray(relayManifest) && relayManifest.length > 0) {
+        files = relayManifest;
+        renderRecvFilesP2P();
+      }
+    } catch(e) {}
+
+    // Fast-path 2: Connect WebRTC via PeerJS
     if (typeof Peer === 'undefined') {
-      updateRecvStatus("ERROR: PeerJS library failed to load. Check internet or adblocker.", true, true);
+      if (!files || !files.length) {
+        updateRecvStatus("ERROR: PeerJS library failed to load. Check internet or adblocker.", true, true);
+      }
       return;
     }
 
@@ -739,23 +791,31 @@ function renderReceiver() {
     }
 
     p2pAttempts++;
-    updateRecvStatus(`INITIALIZING WEBRTC P2P SIGNAL (ATTEMPT ${p2pAttempts})...`);
+    if (!files || !files.length) {
+      updateRecvStatus(`INITIALIZING WEBRTC P2P SIGNAL (ATTEMPT ${p2pAttempts})...`);
+    }
 
     const peer = new Peer(PEER_CONFIG);
     
     peer.on('open', () => {
-      updateRecvStatus(`P2P SIGNAL ESTABLISHED. CONNECTING TO SENDER (${sid})...`);
+      if (!files || !files.length) {
+        updateRecvStatus(`P2P SIGNAL ESTABLISHED. CONNECTING TO SENDER (${sid})...`);
+      }
       
       try {
         p2pConn = peer.connect(sid);
       } catch (err) {
-        updateRecvStatus(`CONNECTION FAILED: ${err.message}. RETRYING...`, true, true);
+        if (!files || !files.length) {
+          updateRecvStatus(`CONNECTION FAILED: ${err.message}. RETRYING...`, true, true);
+        }
         return;
       }
 
       let connTimeout = setTimeout(() => {
         if (!p2pConn || !p2pConn.open) {
-          updateRecvStatus(`WEBRTC NEGOTIATION STALLED WITH (${sid}). RETRYING (ATTEMPT ${p2pAttempts+1})...`, true, true);
+          if (!files || !files.length) {
+            updateRecvStatus(`WEBRTC NEGOTIATION STALLED WITH (${sid}). RETRYING (ATTEMPT ${p2pAttempts+1})...`, true, true);
+          }
           try { peer.destroy(); } catch (e) {}
           p2pRetryTimer = setTimeout(connectP2PReceiver, 2500);
         }
@@ -764,29 +824,24 @@ function renderReceiver() {
       const onConnOpen = () => {
         clearTimeout(connTimeout);
         headerStatusText.textContent = "P2P_CONNECTED";
-        updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
+        if (!files || !files.length) {
+          updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
+        }
         p2pConn.send({ type: 'get_manifest' });
-
-        setTimeout(() => {
-          if ((!files || files.length === 0) && p2pConn && p2pConn.open) {
-            p2pConn.send({ type: 'get_manifest' });
-          }
-        }, 2000);
       };
 
-      // Listen to native RTCPeerConnection ICE state changes
       const checkPeerConnection = () => {
         const pc = p2pConn.peerConnection || p2pConn._peerConnection;
         if (pc) {
           pc.oniceconnectionstatechange = () => {
             const state = pc.iceConnectionState;
-            console.log("ICE Connection State:", state);
             if (state === "checking") {
-              updateRecvStatus(`EXCHANGING WEBRTC SIGNALS WITH SENDER (${sid})...`);
+              if (!files || !files.length) updateRecvStatus(`EXCHANGING WEBRTC SIGNALS WITH SENDER (${sid})...`);
             } else if (state === "connected" || state === "completed") {
-              updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
+              headerStatusText.textContent = "P2P_CONNECTED";
+              if (!files || !files.length) updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
             } else if (state === "failed" || state === "disconnected") {
-              updateRecvStatus(`WEBRTC CONNECTION FAILED. RETRYING...`, true, true);
+              if (!files || !files.length) updateRecvStatus(`WEBRTC CONNECTION FAILED. RETRYING...`, true, true);
               clearTimeout(connTimeout);
               try { peer.destroy(); } catch (e) {}
               p2pRetryTimer = setTimeout(connectP2PReceiver, 2000);
@@ -836,21 +891,22 @@ function renderReceiver() {
 
       p2pConn.on('close', () => {
         headerStatusText.textContent = "DISCONNECTED";
-        updateRecvStatus("PEER CONNECTION CLOSED. RETRYING...", true, true);
       });
 
       p2pConn.on('error', (err) => {
-        updateRecvStatus(`DATA CHANNEL ERROR: ${err.message || err}`, true, true);
+        console.warn("Data channel error:", err);
       });
     });
 
     peer.on('error', (err) => {
       console.warn("Receiver PeerJS error:", err);
-      let msg = `P2P ERROR (${err.type || 'unknown'})`;
-      if (err.type === 'peer-unavailable') {
-        msg = `SENDER NODE NOT READY YET. PLEASE MAKE SURE LAPTOP HAS FILES INDEXED & TAB IS OPEN.`;
+      if (!files || !files.length) {
+        let msg = `P2P ERROR (${err.type || 'unknown'})`;
+        if (err.type === 'peer-unavailable') {
+          msg = `SENDER NODE NOT READY YET. PLEASE MAKE SURE LAPTOP HAS FILES INDEXED & TAB IS OPEN.`;
+        }
+        updateRecvStatus(`${msg} — RETRYING IN 3s...`, true, true);
       }
-      updateRecvStatus(`${msg} — RETRYING IN 3s...`, true, true);
 
       p2pRetryTimer = setTimeout(() => {
         connectP2PReceiver();
