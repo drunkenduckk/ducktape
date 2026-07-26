@@ -177,7 +177,8 @@ const rawSid = params.get("sid") || (location.hash ? new URLSearchParams(locatio
 const sid = rawSid ? rawSid.trim() : null;
 const app = document.getElementById("app");
 const statusDot = document.getElementById("statusDot");
-const CF_RELAY_URL = params.get("relay") || localStorage.getItem("cf_relay_url") || "";
+const DEFAULT_CF_RELAY = ""; // Set your deployed Cloudflare Worker URL here for zero-config end users!
+const CF_RELAY_URL = params.get("relay") || localStorage.getItem("cf_relay_url") || DEFAULT_CF_RELAY;
 
 const Relay = {
   async publish(topic, data) {
@@ -659,7 +660,10 @@ function renderSender() {
 
   function setupP2PPeer() {
     currentSid = 'dt_' + Math.random().toString(36).substring(2, 9);
-    const targetUrl = `${location.protocol}//${location.host}/?sid=${currentSid}`;
+    let targetUrl = `${location.protocol}//${location.host}/?sid=${currentSid}`;
+    if (CF_RELAY_URL) {
+      targetUrl += `&relay=${encodeURIComponent(CF_RELAY_URL)}`;
+    }
 
     document.getElementById("qrImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
     document.getElementById("ipDisplayText").textContent = targetUrl;
