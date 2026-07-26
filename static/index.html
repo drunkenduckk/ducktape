@@ -177,16 +177,38 @@ const rawSid = params.get("sid") || (location.hash ? new URLSearchParams(locatio
 const sid = rawSid ? rawSid.trim() : null;
 const app = document.getElementById("app");
 const statusDot = document.getElementById("statusDot");
-const headerStatusText = document.getElementById("headerStatusText");
-const browserFileInput = document.getElementById("browserFileInput");
+const CF_RELAY_URL = params.get("relay") || localStorage.getItem("cf_relay_url") || "";
 
 const Relay = {
   async publish(topic, data) {
+    const payload = typeof data === 'string' ? data : JSON.stringify(data);
+
+    if (CF_RELAY_URL) {
+      try {
+        if (topic.startsWith("dt_m_")) {
+          const sid = topic.replace("dt_m_", "");
+          await fetch(`${CF_RELAY_URL}/api/manifest/${sid}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload
+          });
+        }
+        await fetch(`${CF_RELAY_URL}/api/signal/${topic}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload
+        });
+        return;
+      } catch (e) {
+        console.warn("CF Relay publish err:", e);
+      }
+    }
+
     try {
       await fetch(`https://ntfy.sh/${topic}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: typeof data === 'string' ? data : JSON.stringify(data)
+        body: payload
       });
     } catch (e) {
       console.warn("Relay publish err:", e);
@@ -194,6 +216,22 @@ const Relay = {
   },
 
   async poll(topic, timeoutMs = 4000) {
+    if (CF_RELAY_URL) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const sid = topic.replace("dt_m_", "");
+        const res = await fetch(`${CF_RELAY_URL}/api/manifest/${sid}`, { signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) {
+          const text = await res.text();
+          try { return JSON.parse(text); } catch (e) { return text; }
+        }
+      } catch (e) {
+        clearTimeout(timer);
+      }
+    }
+
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
@@ -219,6 +257,22 @@ const Relay = {
   },
 
   listen(topic, callback) {
+    if (CF_RELAY_URL) {
+      try {
+        const es = new EventSource(`${CF_RELAY_URL}/api/signal/${topic}`);
+        es.onmessage = (evt) => {
+          try {
+            callback(JSON.parse(evt.data));
+          } catch (e) {
+            callback(evt.data);
+          }
+        };
+        return es;
+      } catch(e) {
+        console.warn("CF Relay listen err:", e);
+      }
+    }
+
     try {
       const es = new EventSource(`https://ntfy.sh/${topic}/sse`);
       es.onmessage = (evt) => {
