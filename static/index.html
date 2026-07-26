@@ -4,8 +4,8 @@
 <meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
 <meta name="author" content="Aman Srivastava"/>
-<meta name="description" content="DUCKTAPE INDUSTRIAL — Zero-cloud high-speed local file streaming created by Aman Srivastava."/>
-<title>DUCKTAPE INDUSTRIAL — High-Speed Direct LAN & P2P File Transfer</title>
+<meta name="description" content="DUCKTAPE INDUSTRIAL — High-speed zero-cloud file streaming created by Aman Srivastava."/>
+<title>DUCKTAPE INDUSTRIAL — High-Speed File Transfer</title>
 <style>
   @layer base {
     html, body { margin: 0; padding: 0; }
@@ -59,7 +59,6 @@
 </script>
 <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet"/>
 <link href="https://fonts.googleapis.com/css2?family=Anton:wght@400&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet"/>
-<script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 </head>
 <body class="bg-background font-mono-data text-on-surface antialiased selection:bg-primary-container selection:text-background">
 
@@ -87,7 +86,7 @@
   <div class="max-w-[1200px] mx-auto px-6 flex flex-col md:flex-row justify-between items-end gap-4">
     <div class="text-left">
       <div class="font-headline-sm text-on-surface uppercase">DUCKTAPE INDUSTRIAL</div>
-      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 2.1.0</div>
+      <div class="font-mono-data text-xs text-on-surface-variant uppercase">CREATED BY AMAN SRIVASTAVA // STRICT PROTOCOL ENFORCED // VERSION 3.0.0</div>
     </div>
     <div class="h-8 w-48 bg-[repeating-linear-gradient(45deg,#f4c60e,#f4c60e_10px,#131313_10px,#131313_20px)]"></div>
   </div>
@@ -102,19 +101,6 @@ const statusDot = document.getElementById("statusDot");
 const headerStatusText = document.getElementById("headerStatusText");
 const browserFileInput = document.getElementById("browserFileInput");
 
-const PEER_CONFIG = {
-  debug: 1,
-  config: {
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' },
-      { urls: 'stun:stun3.l.google.com:19302' },
-      { urls: 'stun:stun4.l.google.com:19302' }
-    ]
-  }
-};
-
 function fmtSize(bytes) {
   if (bytes < 1024) return bytes + " B";
   if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
@@ -122,40 +108,18 @@ function fmtSize(bytes) {
   return (bytes / 1024 ** 3).toFixed(2) + " GB";
 }
 
-function arrayBufferToBase64(buffer) {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
-function base64ToArrayBuffer(base64) {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
 sid ? renderReceiver() : renderSender();
 
 // ============================== SENDER (LAPTOP) ==============================
 function renderSender() {
   let selectedFiles = [];
-  let wifiIp = null;
   let currentSid = null;
-  let p2pPeer = null;
-  let activeConn = null;
-  let isStaticHost = false;
 
   app.innerHTML = `
     <section class="relative w-full min-h-[85vh] flex flex-col items-center justify-center industrial-grid overflow-hidden py-12">
       <div class="relative flex flex-col items-center gap-8">
         <div class="relative bg-on-surface text-background px-4 py-2 font-label-caps animate-bounce text-center text-xs font-bold">
-          Click to select files from disk
+          Click to select files to stream
           <div class="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-full w-0 h-0 border-l-[8px] border-l-transparent border-r-[8px] border-r-transparent border-t-[8px] border-t-on-surface"></div>
         </div>
 
@@ -170,10 +134,10 @@ function renderSender() {
         <div class="flex flex-col items-center gap-2">
           <div class="flex items-center gap-3 font-mono-data text-xs text-primary-container">
             <span class="w-2.5 h-2.5 bg-primary-container animate-pulse"></span>
-            <span id="heroStatusText">SYSTEM_READY_FOR_HANDSHAKE</span>
+            <span id="heroStatusText">SYSTEM_READY_FOR_FILES</span>
           </div>
           <div class="font-mono-data text-[11px] text-on-surface-variant/60 tracking-[0.2em] uppercase text-center max-w-md">
-            Direct High-Speed LAN Stream // Zero Cloud Storage
+            Direct Zero-Cloud File Streaming // Hardware Encrypted Stream
           </div>
         </div>
       </div>
@@ -209,7 +173,7 @@ function renderSender() {
           <div class="border-2 border-primary-container p-4 bg-surface-container-low flex items-center gap-4">
             <span class="material-symbols-outlined text-primary-container text-[32px]">qr_code_scanner</span>
             <div class="font-mono-data text-xs text-on-surface uppercase">
-              <strong>Connection Notice:</strong> Scan QR code using phone camera to pair device.
+              <strong>Connection Notice:</strong> Scan QR code using phone camera to pair and download files.
             </div>
           </div>
 
@@ -218,18 +182,9 @@ function renderSender() {
               <img id="qrImg" alt="Pairing QR Code" class="w-56 h-56 md:w-64 md:h-64 object-contain">
             </div>
             <div class="font-mono-data text-xs text-primary-container mt-4 p-2 bg-surface-container-high border border-outline-variant w-full text-center break-all" id="ipDisplayText">
-              http://0.0.0.0:8080
+              ...
             </div>
           </div>
-
-          <div class="font-mono-data text-xs text-on-surface-variant text-center uppercase" id="pairStatusText">
-            STATUS: Waiting for phone camera scan…
-          </div>
-
-          <button id="startBtn" class="bg-primary-container text-background font-headline-md px-8 py-4 hover:brightness-110 transition-all w-full uppercase flex items-center justify-center gap-3 text-xl" style="display:none">
-            <span class="material-symbols-outlined">rocket_launch</span>
-            TRIGGER PEER DOWNLOAD NOW
-          </button>
         </div>
 
       </div>
@@ -240,49 +195,52 @@ function renderSender() {
   const heroStatusText = document.getElementById("heroStatusText");
   const circleBtnText = document.getElementById("circleBtnText");
 
-  uploadCircleBtn.onclick = async () => {
-    uploadCircleBtn.disabled = true;
-    heroStatusText.textContent = "WAITING_FOR_FILE_SELECTION...";
-
-    try {
-      const res = await fetch("/api/select-files", { method: "POST" });
-      if (!res.ok) throw new Error("Static Host Mode");
-      const data = await res.json();
-      uploadCircleBtn.disabled = false;
-      
-      if (data.files && data.files.length) {
-        selectedFiles = data.files;
-        circleBtnText.textContent = "ADD MORE";
-        heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_OFF_DISK`;
-        renderFilesManifest();
-        await setupNetworkAndQR();
-      }
-    } catch (err) {
-      isStaticHost = true;
-      browserFileInput.click();
-    }
+  uploadCircleBtn.onclick = () => {
+    browserFileInput.click();
   };
 
   browserFileInput.onchange = async () => {
-    uploadCircleBtn.disabled = false;
     if (!browserFileInput.files.length) return;
     
-    selectedFiles = Array.from(browserFileInput.files).map((f, i) => ({
-      id: 'f_' + Date.now() + '_' + i,
-      name: f.name,
-      size: f.size,
-      rawFile: f
-    }));
+    uploadCircleBtn.disabled = true;
+    circleBtnText.textContent = "UPLOADING...";
+    heroStatusText.textContent = "INDEXING_AND_PREPARING_STREAM...";
 
-    circleBtnText.textContent = "ADD MORE";
-    heroStatusText.textContent = `INDEXED_${selectedFiles.length}_FILES_IN_BROWSER`;
-    renderFilesManifest();
-    await setupNetworkAndQR();
+    const formData = new FormData();
+    for (const f of browserFileInput.files) {
+      formData.append("file", f);
+    }
+
+    try {
+      const res = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+      if (!res.ok) throw new Error("Upload failed");
+      const data = await res.json();
+      
+      uploadCircleBtn.disabled = false;
+      circleBtnText.textContent = "ADD MORE";
+      selectedFiles = data.files || [];
+      currentSid = data.sid;
+
+      heroStatusText.textContent = `STREAM_NODE_READY_${selectedFiles.length}_FILES`;
+      headerStatusText.textContent = "STREAM_LIVE";
+      renderFilesManifest();
+
+      document.getElementById("qrImg").src = `/api/qrcode/${currentSid}`;
+      document.getElementById("ipDisplayText").textContent = data.url;
+    } catch(err) {
+      alert("Error preparing stream node: " + err.message);
+      uploadCircleBtn.disabled = false;
+      circleBtnText.textContent = "RETRY";
+      heroStatusText.textContent = "STREAM_PREPARATION_FAILED";
+    }
   };
 
   function renderFilesManifest() {
     document.getElementById("deploymentSection").style.display = "block";
-    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) indexed for streaming`;
+    document.getElementById("fileCountText").textContent = `${selectedFiles.length} file(s) ready for direct stream download`;
     
     const tbody = document.getElementById("fileTableBody");
     tbody.innerHTML = selectedFiles.map(f => `
@@ -294,157 +252,6 @@ function renderSender() {
 
     document.getElementById("deploymentSection").scrollIntoView({ behavior: 'smooth' });
   }
-
-  async function setupNetworkAndQR() {
-    if (!isStaticHost) {
-      try {
-        const res = await fetch("/api/network-interfaces");
-        const contentType = res.headers.get("content-type") || "";
-        if (!res.ok || contentType.includes("text/html")) throw new Error("Static Host");
-        const data = await res.json();
-        wifiIp = data.ip || "127.0.0.1";
-        await createLocalSession();
-        return;
-      } catch (err) {
-        isStaticHost = true;
-      }
-    }
-    setupP2PPeer();
-  }
-
-  async function createLocalSession() {
-    const res = await fetch("/api/create-session", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ip: wifiIp, file_ids: selectedFiles.map(f => f.id) }),
-    });
-    const data = await res.json();
-    if (data.error) { alert(data.error); return; }
-    currentSid = data.sid;
-
-    document.getElementById("qrImg").src = `/api/qrcode/${currentSid}?t=${Date.now()}`;
-    document.getElementById("ipDisplayText").textContent = `http://${wifiIp}:8080/?sid=${currentSid}`;
-    connectSenderWS(currentSid);
-  }
-
-  function setupP2PPeer() {
-    currentSid = 'dt_' + Math.random().toString(36).substring(2, 9);
-    const targetUrl = `${location.protocol}//${location.host}/?sid=${currentSid}`;
-
-    document.getElementById("qrImg").src = `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(targetUrl)}`;
-    document.getElementById("ipDisplayText").textContent = targetUrl;
-    document.getElementById("pairStatusText").textContent = "STATUS: WAITING FOR PHONE TO SCAN QR CODE...";
-
-    if (typeof Peer !== 'undefined') {
-      try { if (p2pPeer) p2pPeer.destroy(); } catch (e) {}
-
-      p2pPeer = new Peer(currentSid, PEER_CONFIG);
-      
-      p2pPeer.on('open', () => {
-        headerStatusText.textContent = "P2P_SIGNAL_READY";
-        statusDot.className = "w-2.5 h-2.5 rounded-full bg-primary-container animate-ping";
-        document.getElementById("pairStatusText").textContent = "STATUS: WAITING FOR PHONE TO SCAN QR CODE...";
-      });
-
-      p2pPeer.on('connection', (conn) => {
-        activeConn = conn;
-        headerStatusText.textContent = "PEER_CONNECTED";
-        document.getElementById("pairStatusText").textContent = "STATUS: PEER_CONNECTED // READY FOR STREAMING";
-        document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
-        document.getElementById("startBtn").style.display = "flex";
-
-        const sendManifest = () => {
-          if (selectedFiles && selectedFiles.length > 0) {
-            try {
-              conn.send({
-                type: 'manifest',
-                files: selectedFiles.map(f => ({ id: f.id, name: f.name, size: f.size }))
-              });
-            } catch (e) {}
-          }
-        };
-
-        if (conn.open) sendManifest();
-        else conn.on('open', sendManifest);
-
-        conn.on('data', (msg) => {
-          if (msg && msg.type === 'get_manifest') {
-            sendManifest();
-          } else if (msg && msg.type === 'request_file') {
-            streamFileToPeer(msg.id, conn);
-          }
-        });
-      });
-    }
-  }
-
-  function streamFileToPeer(fileId, conn) {
-    const fileItem = selectedFiles.find(f => f.id === fileId);
-    if (!fileItem || !fileItem.rawFile || !conn || !conn.open) return;
-
-    const file = fileItem.rawFile;
-    const chunkSize = 32 * 1024; // 32KB chunks
-    let offset = 0;
-
-    try { conn.send({ type: 'start_transfer', id: fileId, name: file.name, size: file.size }); } catch(e){}
-
-    function readSlice() {
-      if (!conn || !conn.open) return;
-
-      const dc = conn.dataChannel || conn._dc;
-      if (dc && dc.bufferedAmount > 1024 * 1024) {
-        setTimeout(readSlice, 30);
-        return;
-      }
-
-      const slice = file.slice(offset, offset + chunkSize);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        if (!conn || !conn.open) return;
-        const arrayBuffer = e.target.result;
-        try {
-          conn.send({ type: 'file_chunk', id: fileId, data: arrayBuffer });
-        } catch(e) {}
-
-        offset += arrayBuffer.byteLength;
-        if (offset < file.size) {
-          setTimeout(readSlice, 5);
-        } else {
-          try { conn.send({ type: 'end_transfer', id: fileId }); } catch(e){}
-        }
-      };
-      reader.readAsArrayBuffer(slice);
-    }
-    readSlice();
-  }
-
-  function connectSenderWS(theSid) {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${location.host}/ws/sender/${theSid}`);
-
-    ws.onopen = () => {
-      headerStatusText.textContent = "HANDSHAKE_READY";
-      statusDot.className = "w-2.5 h-2.5 rounded-full bg-primary-container animate-ping";
-    };
-
-    ws.onmessage = (evt) => {
-      const msg = JSON.parse(evt.data);
-      if (msg.event === "phone_connected") {
-        document.getElementById("pairStatusText").textContent = "STATUS: PEER_CONNECTED // READY FOR STREAMING";
-        document.getElementById("pairStatusText").className = "font-mono-data text-xs text-primary-container text-center font-bold uppercase animate-pulse";
-        document.getElementById("startBtn").style.display = "flex";
-        headerStatusText.textContent = "PEER_PAIRED";
-      }
-    };
-  }
-
-  document.getElementById("startBtn").onclick = async () => {
-    if (activeConn && activeConn.open) {
-      selectedFiles.forEach(f => streamFileToPeer(f.id, activeConn));
-    }
-    document.getElementById("startBtn").textContent = "SIGNAL_DISPATCHED_TO_PEER";
-    document.getElementById("startBtn").disabled = true;
-  };
 }
 
 // ============================== RECEIVER (PHONE) ==============================
@@ -464,7 +271,7 @@ function renderReceiver() {
         <div id="recvFileRows" class="border-2 border-outline-variant bg-background p-4 font-mono-data">
           <div class="flex items-center gap-3">
             <span class="w-3 h-3 rounded-full bg-primary-container animate-pulse"></span>
-            <span class="text-xs text-on-surface">Connecting to sender node...</span>
+            <span class="text-xs text-on-surface">Fetching file manifest...</span>
           </div>
         </div>
       </div>
@@ -472,200 +279,25 @@ function renderReceiver() {
   `;
 
   let files = [];
-  let p2pConn = null;
-  let fileBuffers = {};
-
-  function updateRecvStatus(message, isError = false, showRetryBtn = false) {
-    const el = document.getElementById("recvFileRows");
-    if (!el || (files && files.length > 0)) return;
-    el.innerHTML = `
-      <div class="flex flex-col gap-3 p-4 border border-outline-variant bg-surface">
-        <div class="flex items-center gap-3">
-          <span class="w-3 h-3 rounded-full ${isError ? 'bg-error' : 'bg-primary-container animate-pulse'}"></span>
-          <span class="${isError ? 'text-error font-bold' : 'text-on-surface'} font-mono-data text-xs">${message}</span>
-        </div>
-        ${showRetryBtn ? `
-          <button id="manualRetryBtn" class="mt-2 bg-primary-container text-background px-4 py-2 font-label-caps uppercase self-start hover:brightness-110 flex items-center gap-2 text-xs font-bold">
-            <span class="material-symbols-outlined text-sm">refresh</span>
-            RETRY P2P CONNECTION
-          </button>
-        ` : ''}
-      </div>
-    `;
-    if (showRetryBtn) {
-      const btn = document.getElementById("manualRetryBtn");
-      if (btn) btn.onclick = () => connectP2PReceiver();
-    }
-  }
 
   async function loadFiles() {
     try {
       const res = await fetch(`/api/session/${sid}/files`);
-      const contentType = res.headers.get("content-type") || "";
-      if (!res.ok || contentType.includes("text/html")) throw new Error("P2P Mode");
+      if (!res.ok) throw new Error("Session expired or invalid URL");
       const data = await res.json();
-      if (data.error) throw new Error(data.error);
       files = data.files || [];
       renderRecvFiles();
-      connectReceiverWS();
+      headerStatusText.textContent = "MANIFEST_LOADED";
     } catch (err) {
-      connectP2PReceiver();
-    }
-  }
-
-  function connectP2PReceiver() {
-    if (typeof Peer === 'undefined') {
-      updateRecvStatus("ERROR: PeerJS library failed to load.", true, true);
-      return;
-    }
-
-    updateRecvStatus(`CONNECTING TO SENDER (${sid})...`);
-
-    const peer = new Peer(PEER_CONFIG);
-
-    peer.on('open', () => {
-      try {
-        p2pConn = peer.connect(sid);
-      } catch (err) {
-        updateRecvStatus(`CONNECTION ERROR: ${err.message}`, true, true);
-        return;
-      }
-
-      p2pConn.on('open', () => {
-        headerStatusText.textContent = "P2P_CONNECTED";
-        p2pConn.send({ type: 'get_manifest' });
-      });
-
-      p2pConn.on('data', (msg) => {
-        handleFileMessage(msg);
-      });
-
-      p2pConn.on('close', () => {
-        headerStatusText.textContent = "DISCONNECTED";
-      });
-
-      p2pConn.on('error', (err) => {
-        console.warn("Data channel error:", err);
-      });
-    });
-
-    peer.on('error', (err) => {
-      console.warn("Receiver PeerJS error:", err);
-      let msg = `P2P ERROR (${err.type || 'error'})`;
-      if (err.type === 'peer-unavailable') {
-        msg = `SENDER TAB NOT ACTIVE OR CLOSED. Make sure sender page is open on laptop.`;
-      }
-      updateRecvStatus(msg, true, true);
-    });
-  }
-
-  function handleFileMessage(msg) {
-    if (!msg) return;
-
-    if (msg.type === 'manifest') {
-      if (msg.files && msg.files.length) {
-        files = msg.files;
-        renderRecvFilesP2P();
-      }
-      return;
-    }
-
-    const fId = msg.id;
-    if (!fId) return;
-
-    if (!fileBuffers[fId]) {
-      fileBuffers[fId] = { name: msg.name || fId, size: msg.size || 0, chunks: [], bytesReceived: 0, done: false };
-    }
-    const buf = fileBuffers[fId];
-
-    if (msg.type === 'start_transfer') {
-      const btn = document.getElementById(`dlBtn-${fId}`);
-      if (btn) {
-        btn.disabled = true;
-        btn.textContent = "STREAMING 0%...";
-      }
-    } else if (msg.type === 'file_chunk' && msg.data) {
-      let arrayBuf;
-      if (typeof msg.data === 'string') {
-        arrayBuf = base64ToArrayBuffer(msg.data);
-      } else {
-        arrayBuf = msg.data;
-      }
-      buf.chunks.push(arrayBuf);
-      buf.bytesReceived += arrayBuf.byteLength;
-
-      const btn = document.getElementById(`dlBtn-${fId}`);
-      if (btn) {
-        btn.disabled = true;
-        if (buf.size > 0) {
-          const pct = Math.min(100, Math.round((buf.bytesReceived / buf.size) * 100));
-          btn.textContent = `STREAMING ${pct}%...`;
-        } else {
-          btn.textContent = "STREAMING...";
-        }
-      }
-    } else if (msg.type === 'end_transfer') {
-      if (buf.chunks.length > 0 && !buf.done) {
-        buf.done = true;
-        const blob = new Blob(buf.chunks);
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = buf.name || "download";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        
-        const btn = document.getElementById(`dlBtn-${fId}`);
-        if (btn) {
-          btn.textContent = "DONE ✓";
-          btn.disabled = false;
-        }
-      }
-    }
-  }
-
-  function renderRecvFilesP2P() {
-    const el = document.getElementById("recvFileRows");
-    if (!files || !files.length) { el.textContent = "No files in session manifest."; return; }
-
-    el.innerHTML = `
-      <div class="flex flex-col gap-3">
-        ${files.map(f => `
-          <div class="flex items-center justify-between p-4 border border-outline-variant bg-surface hover:border-primary-container">
-            <div class="flex flex-col overflow-hidden pr-4">
-              <span class="text-on-surface font-bold truncate text-sm">${f.name}</span>
-              <span class="text-xs text-on-surface-variant">${fmtSize(f.size)}</span>
-            </div>
-            <button id="dlBtn-${f.id}" class="bg-primary-container text-background px-4 py-2 font-label-caps flex items-center gap-2 flex-shrink-0 hover:invert text-xs font-bold">
-              <span class="material-symbols-outlined text-sm">download</span>
-              SAVE
-            </button>
+      const el = document.getElementById("recvFileRows");
+      if (el) {
+        el.innerHTML = `
+          <div class="p-4 text-error font-bold text-xs">
+            ERROR: ${err.message}. Please scan the QR code again or make sure the sender has files ready.
           </div>
-        `).join('')}
-      </div>
-    `;
-
-    files.forEach(f => {
-      const btn = document.getElementById(`dlBtn-${f.id}`);
-      if (!btn) return;
-      btn.onclick = () => {
-        btn.disabled = true;
-        btn.textContent = "REQUESTING...";
-        fileBuffers[f.id] = { name: f.name, size: f.size, chunks: [], bytesReceived: 0, done: false };
-
-        if (p2pConn && p2pConn.open) {
-          try {
-            p2pConn.send({ type: 'request_file', id: f.id });
-          } catch(e) {
-            btn.disabled = false;
-            btn.textContent = "RETRY SAVE";
-          }
-        } else {
-          btn.disabled = false;
-          btn.textContent = "WEBRTC DISCONNECTED";
-        }
-      };
-    });
+        `;
+      }
+    }
   }
 
   function renderRecvFiles() {
@@ -688,19 +320,6 @@ function renderReceiver() {
         `).join('')}
       </div>
     `;
-  }
-
-  function connectReceiverWS() {
-    try {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const ws = new WebSocket(`${proto}://${location.host}/ws/receiver/${sid}`);
-
-      ws.onopen = () => {
-        headerStatusText.textContent = "STREAM_READY";
-      };
-    } catch (e) {
-      console.log("WS error:", e);
-    }
   }
 
   loadFiles();
