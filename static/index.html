@@ -362,53 +362,48 @@ function renderSender() {
     const fileItem = selectedFiles.find(f => f.id === fileId);
     if (!fileItem || !fileItem.rawFile) return;
 
-    const file = fileItem.rawFile;
-    const isDataChannel = dataChannel && dataChannel.readyState === "open";
-    const chunkSize = isDataChannel ? 64 * 1024 : 16 * 1024; // 64KB for DataChannel, 16KB for WebSocket
-    let offset = 0;
-
-    const startMsg = JSON.stringify({ type: 'start_transfer', id: fileId, name: file.name, size: file.size });
-    if (isDataChannel) {
-      try { dataChannel.send(startMsg); } catch(e){}
-    } else if (ws && ws.readyState === WebSocket.OPEN) {
-      try { ws.send(startMsg); } catch(e){}
+    if (!dataChannel || dataChannel.readyState !== "open") {
+      const btn = document.getElementById(`dlBtn-${fileId}`);
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = "CONNECT WI-FI / HOTSPOT";
+      }
+      alert("Local P2P Direct Pipe is not connected yet. Please ensure phone is connected to laptop Wi-Fi or Mobile Hotspot!");
+      return;
     }
 
+    const file = fileItem.rawFile;
+    const chunkSize = 128 * 1024; // 128KB max speed DataChannel chunks
+    let offset = 0;
+
+    try {
+      dataChannel.send(JSON.stringify({ type: 'start_transfer', id: fileId, name: file.name, size: file.size }));
+    } catch(e){}
+
     function readSlice() {
-      if (isDataChannel) {
-        if (dataChannel.readyState !== "open") return;
-        if (dataChannel.bufferedAmount > 1024 * 1024) {
-          setTimeout(readSlice, 20);
-          return;
-        }
-      } else {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        if (ws.bufferedAmount > 1024 * 1024) {
-          setTimeout(readSlice, 20);
-          return;
-        }
+      if (!dataChannel || dataChannel.readyState !== "open") return;
+
+      if (dataChannel.bufferedAmount > 8 * 1024 * 1024) {
+        setTimeout(readSlice, 10);
+        return;
       }
 
       const slice = file.slice(offset, offset + chunkSize);
       const reader = new FileReader();
       reader.onload = (e) => {
+        if (!dataChannel || dataChannel.readyState !== "open") return;
         const arrayBuffer = e.target.result;
-        if (isDataChannel) {
-          try { dataChannel.send(arrayBuffer); } catch(e){}
-        } else if (ws && ws.readyState === WebSocket.OPEN) {
-          try { ws.send(arrayBuffer); } catch(e){}
-        }
+        try {
+          dataChannel.send(arrayBuffer);
+        } catch(e) {}
 
         offset += arrayBuffer.byteLength;
         if (offset < file.size) {
-          setTimeout(readSlice, isDataChannel ? 2 : 10);
+          setTimeout(readSlice, 0);
         } else {
-          const endMsg = JSON.stringify({ type: 'end_transfer', id: fileId });
-          if (isDataChannel) {
-            try { dataChannel.send(endMsg); } catch(e){}
-          } else if (ws && ws.readyState === WebSocket.OPEN) {
-            try { ws.send(endMsg); } catch(e){}
-          }
+          try {
+            dataChannel.send(JSON.stringify({ type: 'end_transfer', id: fileId }));
+          } catch(e){}
         }
       };
       reader.readAsArrayBuffer(slice);
