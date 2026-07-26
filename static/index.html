@@ -678,41 +678,53 @@ function renderSender() {
     if (!fileItem || !fileItem.rawFile) return;
 
     const file = fileItem.rawFile;
-    const chunkSize = 64 * 1024; // 64KB chunk
+    const isWebRTC = conn && conn.open;
+    const chunkSize = isWebRTC ? 32 * 1024 : 2048;
     let offset = 0;
 
     const startMsg = { type: 'start_transfer', id: fileId, name: file.name, size: file.size };
-    if (conn && conn.open) try { conn.send(startMsg); } catch(e){}
+    if (isWebRTC) {
+      try { conn.send(startMsg); } catch(e){}
+    }
     Relay.publish(`dt_c_${currentSid}_${fileId}`, startMsg);
 
     function readSlice() {
+      if (conn && conn.open) {
+        const dc = conn.dataChannel || conn._dc || (conn.peerConnection && conn.peerConnection.dataChannel);
+        if (dc && dc.bufferedAmount > 1024 * 1024) {
+          setTimeout(readSlice, 30);
+          return;
+        }
+      }
+
       const slice = file.slice(offset, offset + chunkSize);
       const reader = new FileReader();
       reader.onload = (e) => {
         const arrayBuffer = e.target.result;
 
-        // 1. Send via WebRTC if open
         if (conn && conn.open) {
           try { conn.send({ type: 'file_chunk', id: fileId, data: arrayBuffer }); } catch(e){}
+        } else {
+          const base64Data = arrayBufferToBase64(arrayBuffer);
+          Relay.publish(`dt_c_${currentSid}_${fileId}`, {
+            type: 'file_chunk',
+            id: fileId,
+            offset: offset,
+            data: base64Data
+          });
         }
-
-        // 2. Send via Relay so transfer succeeds even if WebRTC is blocked
-        const base64Data = arrayBufferToBase64(arrayBuffer);
-        Relay.publish(`dt_c_${currentSid}_${fileId}`, {
-          type: 'file_chunk',
-          id: fileId,
-          offset: offset,
-          data: base64Data
-        });
 
         offset += arrayBuffer.byteLength;
         if (offset < file.size) {
-          setTimeout(readSlice, 10);
+          setTimeout(readSlice, conn && conn.open ? 5 : 40);
         } else {
           const endMsg = { type: 'end_transfer', id: fileId };
           if (conn && conn.open) try { conn.send(endMsg); } catch(e){}
           Relay.publish(`dt_c_${currentSid}_${fileId}`, endMsg);
         }
+      };
+      reader.onerror = (err) => {
+        console.error("FileReader error:", err);
       };
       reader.readAsArrayBuffer(slice);
     }
@@ -828,23 +840,32 @@ function renderReceiver() {
     }
   }
 
+  let activeRelayListeners = {};
+  let requestTimeouts = {};
+
   async function connectP2PReceiver() {
-    updateRecvStatus("FETCHING SESSION FILE MANIFEST FROM RELAY...");
+    if (!files || !files.length) {
+      updateRecvStatus("FETCHING SESSION FILE MANIFEST FROM RELAY...");
+    }
 
     // Listen for remote dispatch signals
-    Relay.listen(`dt_cmd_${sid}`, (msg) => {
-      if (msg && msg.type === 'start_all') {
-        const batchBtn = document.getElementById("batchBtn");
-        if (batchBtn) batchBtn.click();
-      }
-    });
+    if (!activeRelayListeners[`cmd_${sid}`]) {
+      activeRelayListeners[`cmd_${sid}`] = Relay.listen(`dt_cmd_${sid}`, (msg) => {
+        if (msg && msg.type === 'start_all') {
+          const batchBtn = document.getElementById("batchBtn");
+          if (batchBtn) batchBtn.click();
+        }
+      });
+    }
 
     // Fast-path 1: Instant Manifest Fetch via HTTP Relay (100% Reliability Guarantee!)
     try {
       const relayManifest = await Relay.poll(`dt_m_${sid}`, 3500);
       if (relayManifest && Array.isArray(relayManifest) && relayManifest.length > 0) {
-        files = relayManifest;
-        renderRecvFilesP2P();
+        if (!files || !files.length) {
+          files = relayManifest;
+          renderRecvFilesP2P();
+        }
       }
     } catch(e) {}
 
@@ -856,6 +877,8 @@ function renderReceiver() {
       return;
     }
 
+    if (p2pConn && p2pConn.open) return;
+
     if (p2pRetryTimer) {
       clearTimeout(p2pRetryTimer);
       p2pRetryTimer = null;
@@ -866,7 +889,13 @@ function renderReceiver() {
       updateRecvStatus(`INITIALIZING WEBRTC P2P SIGNAL (ATTEMPT ${p2pAttempts})...`);
     }
 
-    const peer = new Peer(PEER_CONFIG);
+    let peer;
+    try {
+      peer = new Peer(PEER_CONFIG);
+    } catch (e) {
+      console.warn("Peer creation failed:", e);
+      return;
+    }
     
     peer.on('open', () => {
       if (!files || !files.length) {
@@ -886,9 +915,9 @@ function renderReceiver() {
         if (!p2pConn || !p2pConn.open) {
           if (!files || !files.length) {
             updateRecvStatus(`WEBRTC NEGOTIATION STALLED WITH (${sid}). RETRYING (ATTEMPT ${p2pAttempts+1})...`, true, true);
+            try { peer.destroy(); } catch (e) {}
+            p2pRetryTimer = setTimeout(connectP2PReceiver, 3000);
           }
-          try { peer.destroy(); } catch (e) {}
-          p2pRetryTimer = setTimeout(connectP2PReceiver, 2500);
         }
       }, 10000);
 
@@ -898,7 +927,7 @@ function renderReceiver() {
         if (!files || !files.length) {
           updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
         }
-        p2pConn.send({ type: 'get_manifest' });
+        try { p2pConn.send({ type: 'get_manifest' }); } catch(e){}
       };
 
       const checkPeerConnection = () => {
@@ -912,10 +941,12 @@ function renderReceiver() {
               headerStatusText.textContent = "P2P_CONNECTED";
               if (!files || !files.length) updateRecvStatus("CONNECTED TO SENDER NODE. FETCHING FILE MANIFEST...");
             } else if (state === "failed" || state === "disconnected") {
-              if (!files || !files.length) updateRecvStatus(`WEBRTC CONNECTION FAILED. RETRYING...`, true, true);
               clearTimeout(connTimeout);
-              try { peer.destroy(); } catch (e) {}
-              p2pRetryTimer = setTimeout(connectP2PReceiver, 2000);
+              if (!files || !files.length) {
+                updateRecvStatus(`WEBRTC CONNECTION FAILED. RETRYING...`, true, true);
+                try { peer.destroy(); } catch (e) {}
+                p2pRetryTimer = setTimeout(connectP2PReceiver, 3000);
+              }
             }
           };
         }
@@ -949,28 +980,42 @@ function renderReceiver() {
           msg = `SENDER NODE NOT READY YET. PLEASE MAKE SURE LAPTOP HAS FILES INDEXED & TAB IS OPEN.`;
         }
         updateRecvStatus(`${msg} — RETRYING IN 3s...`, true, true);
+        if (p2pAttempts < 4) {
+          p2pRetryTimer = setTimeout(connectP2PReceiver, 3000);
+        }
       }
-
-      p2pRetryTimer = setTimeout(() => {
-        connectP2PReceiver();
-      }, 3000);
     });
   }
 
   function handleFileMessage(msg) {
-    if (!msg || !msg.id) return;
+    if (!msg || (!msg.id && msg.type !== 'manifest')) return;
+
+    if (msg.type === 'manifest') {
+      if (msg.files && msg.files.length) {
+        const isNew = files.length !== msg.files.length || files.some((f, i) => f.id !== msg.files[i]?.id);
+        files = msg.files;
+        if (isNew) renderRecvFilesP2P();
+      }
+      return;
+    }
+
     const fId = msg.id;
+    if (requestTimeouts[fId]) {
+      clearTimeout(requestTimeouts[fId]);
+      delete requestTimeouts[fId];
+    }
+
     if (!fileBuffers[fId]) {
       fileBuffers[fId] = { name: msg.name || fId, size: msg.size || 0, chunks: [], bytesReceived: 0, done: false };
     }
     const buf = fileBuffers[fId];
 
-    if (msg.type === 'manifest') {
-      files = msg.files || [];
-      if (files.length) renderRecvFilesP2P();
-    } else if (msg.type === 'start_transfer') {
+    if (msg.type === 'start_transfer') {
       const btn = document.getElementById(`dlBtn-${fId}`);
-      if (btn) btn.textContent = "STREAMING 0%...";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "STREAMING 0%...";
+      }
     } else if (msg.type === 'file_chunk' && msg.data) {
       let arrayBuf;
       if (typeof msg.data === 'string') {
@@ -983,6 +1028,7 @@ function renderReceiver() {
 
       const btn = document.getElementById(`dlBtn-${fId}`);
       if (btn) {
+        btn.disabled = true;
         if (buf.size > 0) {
           const pct = Math.min(100, Math.round((buf.bytesReceived / buf.size) * 100));
           btn.textContent = `STREAMING ${pct}%...`;
@@ -1012,7 +1058,7 @@ function renderReceiver() {
 
   function renderRecvFilesP2P() {
     const el = document.getElementById("recvFileRows");
-    if (!files.length) { el.textContent = "No files in session manifest."; return; }
+    if (!files || !files.length) { el.textContent = "No files in session manifest."; return; }
 
     el.innerHTML = `
       <div class="flex flex-col gap-3">
@@ -1038,15 +1084,23 @@ function renderReceiver() {
         btn.disabled = true;
         btn.textContent = "REQUESTING...";
 
-        // Listen for chunks on Relay topic
-        Relay.listen(`dt_c_${sid}_${f.id}`, (msg) => {
-          handleFileMessage(msg);
-        });
+        if (requestTimeouts[f.id]) clearTimeout(requestTimeouts[f.id]);
+        requestTimeouts[f.id] = setTimeout(() => {
+          const currentBtn = document.getElementById(`dlBtn-${f.id}`);
+          if (currentBtn && (currentBtn.textContent === "REQUESTING..." || currentBtn.disabled && !currentBtn.textContent.startsWith("STREAMING") && currentBtn.textContent !== "DONE ✓")) {
+            currentBtn.disabled = false;
+            currentBtn.textContent = "RETRY SAVE";
+          }
+        }, 8000);
 
-        // Publish request on Relay
+        if (!activeRelayListeners[`chunk_${f.id}`]) {
+          activeRelayListeners[`chunk_${f.id}`] = Relay.listen(`dt_c_${sid}_${f.id}`, (msg) => {
+            handleFileMessage(msg);
+          });
+        }
+
         Relay.publish(`dt_req_${sid}`, { type: 'request_file', id: f.id });
 
-        // Also send request on WebRTC if open
         if (p2pConn && p2pConn.open) {
           try { p2pConn.send({ type: 'request_file', id: f.id }); } catch(e){}
         }
